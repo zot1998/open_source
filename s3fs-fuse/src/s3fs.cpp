@@ -230,13 +230,10 @@ static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off
 static int s3fs_access(const char* path, int mask);
 static void* s3fs_init(struct fuse_conn_info* conn);
 static void s3fs_destroy(void*);
-#if defined(__APPLE__)
-static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags, uint32_t position);
-static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size, uint32_t position);
-#else
+
 static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags);
 static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size);
-#endif
+
 static int s3fs_listxattr(const char* path, char* list, size_t size);
 static int s3fs_removexattr(const char* path, const char* name);
 
@@ -3025,11 +3022,8 @@ static int set_xattrs_to_header(headers_t& meta, const char* name, const char* v
   return 0;
 }
 
-#if defined(__APPLE__)
-static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags, uint32_t position)
-#else
+
 static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags)
-#endif
 {
   S3FS_PRN_INFO("[path=%s][name=%s][value=%p][size=%zu][flags=%d]", path, name, value, size, flags);
 
@@ -3037,13 +3031,6 @@ static int s3fs_setxattr(const char* path, const char* name, const char* value, 
     S3FS_PRN_ERR("Wrong parameter: value(%p), size(%zu)", value, size);
     return 0;
   }
-
-#if defined(__APPLE__)
-  if (position != 0) {
-    // No resource fork support
-    return -EINVAL;
-  }
-#endif
 
   int         result;
   string      strpath;
@@ -3112,11 +3099,8 @@ static int s3fs_setxattr(const char* path, const char* name, const char* value, 
   return 0;
 }
 
-#if defined(__APPLE__)
-static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size, uint32_t position)
-#else
+
 static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size)
-#endif
 {
   S3FS_PRN_INFO("[path=%s][name=%s][value=%p][size=%zu]", path, name, value, size);
 
@@ -3124,12 +3108,7 @@ static int s3fs_getxattr(const char* path, const char* name, char* value, size_t
     return -EIO;
   }
 
-#if defined(__APPLE__)
-  if (position != 0) {
-    // No resource fork support
-    return -EINVAL;
-  }
-#endif
+
 
   int       result;
   headers_t meta;
@@ -5095,46 +5074,45 @@ int main(int argc, char* argv[])
     exit(EXIT_FAILURE);
   }
 
-  s3fs_oper.getattr   = s3fs_getattr;
-  s3fs_oper.readlink  = s3fs_readlink;
-  s3fs_oper.mknod     = s3fs_mknod;
-  s3fs_oper.mkdir     = s3fs_mkdir;
-  s3fs_oper.unlink    = s3fs_unlink;
-  s3fs_oper.rmdir     = s3fs_rmdir;
-  s3fs_oper.symlink   = s3fs_symlink;
-  s3fs_oper.rename    = s3fs_rename;
-  s3fs_oper.link      = s3fs_link;
+  S3FS_OPERATOER(s3fs_oper.getattr,  getattr);
+  S3FS_OPERATOER(s3fs_oper.readlink, readlink);
+  S3FS_OPERATOER(s3fs_oper.mknod,    mknod);
+  S3FS_OPERATOER(s3fs_oper.mkdir,    mkdir);
+  S3FS_OPERATOER(s3fs_oper.unlink,   unlink);
+  S3FS_OPERATOER(s3fs_oper.rmdir,    rmdir);
+  S3FS_OPERATOER(s3fs_oper.symlink,  symlink);
+  S3FS_OPERATOER(s3fs_oper.rename,   rename);
+  S3FS_OPERATOER(s3fs_oper.link,     link);
   if(!nocopyapi){
-    s3fs_oper.chmod   = s3fs_chmod;
-    s3fs_oper.chown   = s3fs_chown;
-    s3fs_oper.utimens = s3fs_utimens;
+  	S3FS_OPERATOER(s3fs_oper.chmod,  chmod);
+	S3FS_OPERATOER(s3fs_oper.chown,  chown);
+	S3FS_OPERATOER(s3fs_oper.utimens,utimens );
   }else{
-    s3fs_oper.chmod   = s3fs_chmod_nocopy;
-    s3fs_oper.chown   = s3fs_chown_nocopy;
-    s3fs_oper.utimens = s3fs_utimens_nocopy;
+    S3FS_OPERATOER(s3fs_oper.chmod,  chmod_nocopy);
+	S3FS_OPERATOER(s3fs_oper.chown,  chown_nocopy);
+	S3FS_OPERATOER(s3fs_oper.utimens,utimens_nocopy);
   }
-  s3fs_oper.truncate  = s3fs_truncate;
-  s3fs_oper.open      = s3fs_open;
-  s3fs_oper.read      = s3fs_read;
-  s3fs_oper.write     = s3fs_write;
-  s3fs_oper.statfs    = s3fs_statfs;
-  s3fs_oper.flush     = s3fs_flush;
-  s3fs_oper.fsync     = s3fs_fsync;
-  s3fs_oper.release   = s3fs_release;
-  s3fs_oper.opendir   = s3fs_opendir;
-  s3fs_oper.readdir   = s3fs_readdir;
-  s3fs_oper.init      = s3fs_init;
-  s3fs_oper.destroy   = s3fs_destroy;
-  s3fs_oper.access    = s3fs_access;
-  s3fs_oper.create    = s3fs_create;
-  // extended attributes
+  S3FS_OPERATOER(s3fs_oper.truncate, truncate);
+  S3FS_OPERATOER(s3fs_oper.open,     open);
+  S3FS_OPERATOER(s3fs_oper.read,     read);
+  S3FS_OPERATOER(s3fs_oper.write,    write);
+  S3FS_OPERATOER(s3fs_oper.statfs,   statfs);
+  S3FS_OPERATOER(s3fs_oper.flush,    flush);
+  S3FS_OPERATOER(s3fs_oper.fsync,    fsync);
+  S3FS_OPERATOER(s3fs_oper.release,  release);
+  S3FS_OPERATOER(s3fs_oper.opendir,  opendir);
+  S3FS_OPERATOER(s3fs_oper.readdir,  readdir);
+  S3FS_OPERATOER(s3fs_oper.init,     init);
+  S3FS_OPERATOER(s3fs_oper.destroy,  destroy);
+  S3FS_OPERATOER(s3fs_oper.access,   access);
+  S3FS_OPERATOER(s3fs_oper.create,   create);  
   if(is_use_xattr){
-    s3fs_oper.setxattr    = s3fs_setxattr;
-    s3fs_oper.getxattr    = s3fs_getxattr;
-    s3fs_oper.listxattr   = s3fs_listxattr;
-    s3fs_oper.removexattr = s3fs_removexattr;
+  	S3FS_OPERATOER(s3fs_oper.setxattr,    setxattr);
+	S3FS_OPERATOER(s3fs_oper.getxattr,    getxattr);
+	S3FS_OPERATOER(s3fs_oper.listxattr,   listxattr);
+	S3FS_OPERATOER(s3fs_oper.removexattr, removexattr);
   }
-
+  
   // set signal handler for debugging
   if(!set_s3fs_usr2_handler()){
     S3FS_PRN_EXIT("could not set signal handler for SIGUSR2.");
