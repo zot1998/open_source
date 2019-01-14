@@ -52,6 +52,7 @@
 #include "fdcache.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
+#include "s3fs_io.h"
 
 using namespace std;
 
@@ -132,6 +133,7 @@ static bool is_ecs                = false;
 static bool is_ibm_iam_auth       = false;
 static bool is_use_xattr          = false;
 static bool create_bucket         = false;
+static bool is_sync_getattr       = false;//获取属性时是否同步请求oss
 static int64_t singlepart_copy_limit = FIVE_GB;
 static bool is_specified_endpoint = false;
 static int s3fs_init_deferred_exit_status = 0;
@@ -473,6 +475,23 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     return -ENOENT;
   }
 
+  //try to access cache 
+  string cache_path;
+  FdManager::MakeCachePath(path, cache_path, false, false);
+  result = stat(cache_path.c_str(), pstbuf);
+  if (0 == result) {
+    return 0;
+  } else if (ENOENT == result) {
+    if (is_sync_getattr) {
+      //sync from oss
+    } else {
+      return -ENOENT;
+    }
+  } else {
+    S3FS_PRN_INFO("[path=%s] get stat return %d", result);
+    return result;
+  }
+
   // At first, check path
   strpath     = path;
   result      = s3fscurl.HeadRequest(strpath.c_str(), (*pheader));
@@ -568,7 +587,15 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
       return -ENOENT;
     }
   }
-  return 0;
+
+  FdEntity* ent = NULL;
+  if(NULL == (ent = get_local_fent(cache_path))){
+    S3FS_PRN_ERR("could not get fent(file=%s)", path);
+    return -EIO;
+  }
+  ent->Close()
+  
+  return result;
 }
 
 //
@@ -758,7 +785,7 @@ bool get_object_sse_type(const char* path, sse_type_t& ssetype, string& ssevalue
   return true;
 }
 
-static FdEntity* get_local_fent(const char* path, bool is_load)
+FdEntity* get_local_fent(const char* path, bool is_load)
 {
   struct stat stobj;
   FdEntity*   ent;
@@ -4726,6 +4753,10 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       create_bucket = true;
       return 0;
     }
+    if (0 == strcmp(arg, "sync_getattr")) {
+      is_sync_getattr = true;        
+      return 0;
+    }
     if(0 == STR2NCMP(arg, "endpoint=")){
       endpoint              = strchr(arg, '=') + sizeof(char);
       is_specified_endpoint = true;
@@ -5074,45 +5105,46 @@ int main(int argc, char* argv[])
     exit(EXIT_FAILURE);
   }
 
-  S3FS_OPERATOER(s3fs_oper.getattr,  getattr);
-  S3FS_OPERATOER(s3fs_oper.readlink, readlink);
-  S3FS_OPERATOER(s3fs_oper.mknod,    mknod);
-  S3FS_OPERATOER(s3fs_oper.mkdir,    mkdir);
-  S3FS_OPERATOER(s3fs_oper.unlink,   unlink);
-  S3FS_OPERATOER(s3fs_oper.rmdir,    rmdir);
-  S3FS_OPERATOER(s3fs_oper.symlink,  symlink);
-  S3FS_OPERATOER(s3fs_oper.rename,   rename);
-  S3FS_OPERATOER(s3fs_oper.link,     link);
+  s3fs_oper.getattr   = s3fs_getattr;
+  s3fs_oper.readlink  = s3fs_readlink;
+  s3fs_oper.mknod     = s3fs_mknod;
+  s3fs_oper.mkdir     = s3fs_mkdir;
+  s3fs_oper.unlink    = s3fs_unlink;
+  s3fs_oper.rmdir     = s3fs_rmdir;
+  s3fs_oper.symlink   = s3fs_symlink;
+  s3fs_oper.rename    = s3fs_rename;
+  s3fs_oper.link      = s3fs_link;
   if(!nocopyapi){
-  	S3FS_OPERATOER(s3fs_oper.chmod,  chmod);
-	S3FS_OPERATOER(s3fs_oper.chown,  chown);
-	S3FS_OPERATOER(s3fs_oper.utimens,utimens );
+    s3fs_oper.chmod   = s3fs_chmod;
+    s3fs_oper.chown   = s3fs_chown;
+    s3fs_oper.utimens = s3fs_utimens;
   }else{
-    S3FS_OPERATOER(s3fs_oper.chmod,  chmod_nocopy);
-	S3FS_OPERATOER(s3fs_oper.chown,  chown_nocopy);
-	S3FS_OPERATOER(s3fs_oper.utimens,utimens_nocopy);
+    s3fs_oper.chmod   = s3fs_chmod_nocopy;
+    s3fs_oper.chown   = s3fs_chown_nocopy;
+    s3fs_oper.utimens = s3fs_utimens_nocopy;
   }
-  S3FS_OPERATOER(s3fs_oper.truncate, truncate);
-  S3FS_OPERATOER(s3fs_oper.open,     open);
-  S3FS_OPERATOER(s3fs_oper.read,     read);
-  S3FS_OPERATOER(s3fs_oper.write,    write);
-  S3FS_OPERATOER(s3fs_oper.statfs,   statfs);
-  S3FS_OPERATOER(s3fs_oper.flush,    flush);
-  S3FS_OPERATOER(s3fs_oper.fsync,    fsync);
-  S3FS_OPERATOER(s3fs_oper.release,  release);
-  S3FS_OPERATOER(s3fs_oper.opendir,  opendir);
-  S3FS_OPERATOER(s3fs_oper.readdir,  readdir);
-  S3FS_OPERATOER(s3fs_oper.init,     init);
-  S3FS_OPERATOER(s3fs_oper.destroy,  destroy);
-  S3FS_OPERATOER(s3fs_oper.access,   access);
-  S3FS_OPERATOER(s3fs_oper.create,   create);  
+  s3fs_oper.truncate  = s3fs_truncate;
+  s3fs_oper.open      = s3fs_open;
+  s3fs_oper.read      = s3fs_read;
+  s3fs_oper.write     = s3fs_write;
+  s3fs_oper.statfs    = s3fs_statfs;
+  s3fs_oper.flush     = s3fs_flush;
+  s3fs_oper.fsync     = s3fs_fsync;
+  s3fs_oper.release   = s3fs_release;
+  s3fs_oper.opendir   = s3fs_opendir;
+  s3fs_oper.readdir   = s3fs_readdir;
+  s3fs_oper.init      = s3fs_init;
+  s3fs_oper.destroy   = s3fs_destroy;
+  s3fs_oper.access    = s3fs_access;
+  s3fs_oper.create    = s3fs_create;
+  // extended attributes
   if(is_use_xattr){
-  	S3FS_OPERATOER(s3fs_oper.setxattr,    setxattr);
-	S3FS_OPERATOER(s3fs_oper.getxattr,    getxattr);
-	S3FS_OPERATOER(s3fs_oper.listxattr,   listxattr);
-	S3FS_OPERATOER(s3fs_oper.removexattr, removexattr);
+    s3fs_oper.setxattr    = s3fs_setxattr;
+    s3fs_oper.getxattr    = s3fs_getxattr;
+    s3fs_oper.listxattr   = s3fs_listxattr;
+    s3fs_oper.removexattr = s3fs_removexattr;
   }
-  
+
   // set signal handler for debugging
   if(!set_s3fs_usr2_handler()){
     S3FS_PRN_EXIT("could not set signal handler for SIGUSR2.");
