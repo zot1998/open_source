@@ -961,6 +961,15 @@ bool is_need_check_obj_detail(headers_t& meta)
   return true;
 }
 
+void trim_path(std::string &path) {
+    while (path.size() > 1 && *path.rbegin() == '/') {
+        path.erase(path.end() -1);
+    }
+    
+    return;
+}
+
+
 //-------------------------------------------------------------------
 // Help
 //-------------------------------------------------------------------

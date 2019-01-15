@@ -4,6 +4,7 @@
 
 int s3fs_generate_cachefile(const char* path, struct stat* stbuf);
 
+int s3fs_remove_cachedir(const char* path);
 
 
 

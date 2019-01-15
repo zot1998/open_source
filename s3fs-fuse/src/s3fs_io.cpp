@@ -36,6 +36,13 @@
 
 //get_local_fent
 int s3fs_generate_cachefile(const char* path, struct stat* stbuf){
+    string cache_path;
+    FdManager::MakeCachePath(path, cache_path, false, false);
+
+    if (0 == cache_path.size()) {
+        return 0;
+    }
+  
     if (S_ISREG(stbuf->st_mode)) {
         FdEntity *ent = NULL;
         
@@ -54,12 +61,42 @@ int s3fs_generate_cachefile(const char* path, struct stat* stbuf){
 
         result = mkdir(path, stbuf->st_mode);
         if (0 != result) {
-            S3FS_PRN_ERR("Make cache directory(%s, mode:0x%x) errno %d ", path, stbuf->st_mode, errno);
+            S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", path, stbuf->st_mode, errno);
             return result;
         }
+
+        //set stat
+        // not opened file yet.
+        struct utimbuf n_mtime;
+        n_mtime.modtime = time;
+        n_mtime.actime  = time;
+        if(-1 == utime(cachepath.c_str(), &n_mtime)){
+            S3FS_PRN_ERR("utime failed. errno(%d)", errno);
+            return -errno;
+        }
+    
     } else {
         S3FS_PRN_ERR("Don't support operation(%s, mode:0x%x)", path, stbuf->st_mode);
         return -EIO;
+    }
+
+   
+    
+    return 0;
+}
+
+int s3fs_remove_cachedir(const char* path) {
+    string cache_path;
+    FdManager::MakeCachePath(path, cache_path, false, false);
+    if (0 == cache_path.size()) {
+        return 0;
+    }
+
+    int result = 0;
+    result = rmdir(cache_path.c_str());
+    if (0 != result) {
+        S3FS_PRN_ERR("remove local directory(%s) error: %d", path, -errno);
+        return result;
     }
     
     return 0;

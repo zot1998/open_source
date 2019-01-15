@@ -476,12 +476,14 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   }
 
   //try to access cache 
+  //TODO...
+  //场景1:在web端删除一个文件，立即又创建一个同名但内容不一样的文件。
   string cache_path;
   FdManager::MakeCachePath(path, cache_path, false, false);
   result = stat(cache_path.c_str(), pstbuf);
   if (0 == result) {
     return 0;
-  } else if (ENOENT == result) {
+  } else if (-ENOENT == result) {
     if (is_sync_getattr) {
       //sync from oss
     } else {
@@ -588,12 +590,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     }
   }
 
-  FdEntity* ent = NULL;
-  if(NULL == (ent = get_local_fent(cache_path))){
-    S3FS_PRN_ERR("could not get fent(file=%s)", path);
-    return -EIO;
-  }
-  ent->Close()
+  result = s3fs_generate_cachefile(path.c_str(), pstat);
   
   return result;
 }
@@ -1072,6 +1069,19 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
     tpath += "/";
   }
 
+  struct stat statbuf = {0};
+  statbuf.st_uid = uid;
+  statbuf.st_gid = gid;
+  statbuf.st_mode = mode;
+  statbuf.st_mtime = time;
+  statbuf.st_nlink = 2;
+
+  int result = 0;
+  result = s3fs_generate_cachefile(path, &statbuf);
+  if (0 != result) {
+      S3FS_PRN_WARN("make local dir failed(%s, result:%d)", path, result);
+  }
+
   headers_t meta;
   meta["Content-Type"]     = string("application/x-directory");
   meta["x-amz-meta-uid"]   = str(uid);
@@ -1197,6 +1207,8 @@ static int s3fs_rmdir(const char* path)
     result   = s3fscurl.DeleteRequest(strpath.c_str());
   }
   S3FS_MALLOCTRIM(0);
+
+  s3fs_remove_cachedir(path);
 
   return result;
 }
@@ -4349,7 +4361,10 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       return 0;
     }
     if(0 == STR2NCMP(arg, "use_cache=")){
-      FdManager::SetCacheDir(strchr(arg, '=') + sizeof(char));
+      string strCacheHomeDir = strchr(arg, '=') + sizeof(char);
+      trim_path(strCacheHomeDir);        
+      FdManager::SetCacheDir(strCacheHomeDir + "/data");
+      S3DB::Instance()->setPath(strCacheHomeDir + "/db", bucket);
       return 0;
     }
     if(0 == STR2NCMP(arg, "check_cache_dir_exist")){
