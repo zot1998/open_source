@@ -111,10 +111,39 @@ int S3DB::removeDB(long int id) {
     return 0;
 }
 
+static int queryFileCB(void *para, int argc, char **argv, char **azColName) {
+    int i = 0;
+    S3DB_OP_LIST *pList = (S3DB_OP_LIST *)para;
 
-int S3DB::queryDB(string &file, S3DB_OP_LIST &list) {
+    for (i = 0; i < argc; i++) {
 
+
+
+    }
+
+    return 0;    
 }
+
+int S3DB::queryFileDB(string &file, S3DB_OP_LIST &list) {
+    int rc = 0;
+    char *pcErrMsg = NULL;
+    char *pSql = NULL;
+    char sql[1024];
+
+    snprintf(sql, sizeof(sql) - 1,  "SELECT ID, OPERATER, STATUS from record WHERE FILE = %s;", file.c_str());
+    
+    rc = sqlite3_exec(m_pSql3, sql, queryFileCB, (void *)&list, &pcErrMsg);
+    if(SQLITE_OK != rc){
+        S3FS_PRN_ERR("SQL remove failed(file:%lld, rc:%d, msg: %s)", file.c_str(),  rc, pcErrMsg);
+
+        sqlite3_free(pcErrMsg);
+        return rc;
+    }
+
+
+    return 0;
+}
+
 
 
 int S3DB::createTable(void) {

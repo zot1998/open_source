@@ -50,9 +50,11 @@ class S3DB
         int insertDB(unsigned long long key, string &file, int nOperator, int nStatus);
         int updateDB(unsigned long long key, int nStatus);
         int removeDB(unsigned long long key);
-        int queryDB(string &file, S3DB_OP_LIST &list);
+        int queryFileDB(string &file, S3DB_OP_LIST &list);
 
+        static int queryFileCB(void *para, int argc, char **argv, char **azColName);
         static int queryMaxIDCB(void *para, int argc, char **argv, char **azColName);
+        static int queryMinIDCB(void *para, int argc, char **argv, char **azColName);
         
 
         int createTable(void);
