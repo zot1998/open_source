@@ -3,7 +3,11 @@
 #include <stdint.h>
 #include <string>
 #include <string.h>
+#include <unistd.h>
+
 #include "s3fs_db.h"
+#include "s3fs_rsync.h"
+
 #include "test_util.h"
 
 void test_trim()
@@ -16,22 +20,42 @@ void test_base64()
 
 }
 
+int add(const char *pFile) {
+    printf("---- add ----: %s\n",pFile);
+
+    return 0;
+}
+int del(const char *pFile) {
+    printf("---- del ----: %s\n",pFile);
+
+    return 0;
+}
+
+
 int main(int argc, char *argv[])
 {
     int rc = 0;
-    
-    rc = S3DB::Instance().init("./test/sql.db");	
+
+    S3RSync::Instance().setBucket("test");
+    S3RSync::Instance().setCacheDir("./");
+
+    S3RSync::Instance().setSyncAddFunc(add);
+    S3RSync::Instance().setSyncDelFunc(del);
+
+    rc = S3RSync::Instance().init();
     ASSERT_EQUALS(rc, 0);
 
     #if 1
-    S3DB::Instance().insertDB("/root",   1, 1);
-    S3DB::Instance().insertDB("/root/2", 2, 2);
-    S3DB::Instance().insertDB("/root/3", 3, 3);
-    S3DB::Instance().insertDB("/root/4", 4, 4);
-    S3DB::Instance().insertDB("/root/3", 5, 5);
-    S3DB::Instance().insertDB("/root/3", 6, 6);
+    S3DB::Instance().insertDB("/root",   S3DB_OP_ADD, S3DB_STATUS_INIT);
+    S3DB::Instance().insertDB("/root/2", S3DB_OP_DEL, S3DB_STATUS_INIT);
+    S3DB::Instance().insertDB("/root/3", S3DB_OP_ADD, S3DB_STATUS_INIT);
+    S3DB::Instance().insertDB("/root/4", S3DB_OP_ADD, S3DB_STATUS_INIT);
+    S3DB::Instance().insertDB("/root/3", S3DB_OP_DEL, S3DB_STATUS_INIT);
+    S3DB::Instance().insertDB("/root/3", S3DB_OP_ADD, S3DB_STATUS_INIT);
     #endif
-    S3DB::Instance().insertDB("/root/我们", 6, 6);
+    S3DB::Instance().insertDB("/root/我们", S3DB_OP_ADD, S3DB_STATUS_INIT);
+
+    S3DB::Instance().insertDB("/root/3", S3DB_OP_DEL, S3DB_STATUS_INIT);
 
     S3DB_LIST_S m;	
     S3DB::Instance().queryAheadDB(m);		
@@ -46,8 +70,8 @@ int main(int argc, char *argv[])
 
     
     
-
     
+    usleep(30 * 1000 * 1000);
 
     
     

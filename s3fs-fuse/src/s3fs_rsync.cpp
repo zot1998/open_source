@@ -9,9 +9,9 @@
 
 //#include "s3fs_util.h"
 #define trim_path(x)
-#define S3FS_PRN_ERR printf
-#define S3FS_PRN_WARN printf
-#define S3FS_PRN_INFO printf
+#define S3FS_PRN_ERR  printf("\n");printf
+#define S3FS_PRN_WARN printf("\n");printf
+#define S3FS_PRN_INFO printf("\n");printf
 
 bool    S3RSync::m_bRunFlag = true;
 S3RSync S3RSync::m_instance;
@@ -29,7 +29,7 @@ S3RSync::~S3RSync() {
 
 int S3RSync::init(void){
     int rc = 0;
-    if (0 == m_strCacheDir.size() || 0 != m_strBucketName.size()) {
+    if (0 == m_strCacheDir.size() || 0 == m_strBucketName.size()) {
         S3FS_PRN_ERR("Not config cachedir(%s) or bucket(%s).", m_strCacheDir.c_str(), m_strBucketName.c_str());
         return -1;
     }
@@ -114,11 +114,13 @@ int S3RSync::rsync(void){
     }
     
     if (0 == lst.size()) {
-        S3FS_PRN_INFO("Sync no record");
+        //S3FS_PRN_INFO("Sync no record");
         return 0;
     }
     
     S3DB_INFO_S info = *lst.begin();
+    
+    lst.clear();
     rc = S3DB::Instance().queryDB(lst, info.strFile.c_str());
     if (rc) {
         S3FS_PRN_ERR("Sync queryDB failed(%d)", rc);
