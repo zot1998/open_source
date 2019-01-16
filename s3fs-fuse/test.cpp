@@ -8,6 +8,26 @@ using namespace std;
 #define S3FS_PRN_WARN printf 
 sqlite3 *m_pSql3 = NULL;
 
+typedef struct _S3DB_INFO_S {
+    long int  n64Id;
+    int       nOperator;
+    int       nStatus;   
+
+    _S3DB_INFO_S() {
+        n64Id = 0;
+        nOperator = 0;
+        nStatus = 0;
+    }
+}S3DB_INFO_S;
+
+typedef struct _S3DB_OP_KEY {
+    long int n64Id;
+    string   strPath;
+}S3DB_OP_KEY;
+
+typedef list<S3DB_INFO_S>             S3DB_OP_LIST;
+typedef map<S3DB_OP_KEY, S3DB_INFO_S> S3DB_OP_KEY_MAP;
+
 long long m_u64OpIndex = 0;
 
 int QueryMaxIDCB(void *NotUsed, int argc, char **argv, char **azColName){
@@ -113,6 +133,53 @@ int removeDB(long int id) {
     return 0;
 }
 
+static int queryFileCB(void *para, int argc, char **argv, char **azColName) {
+    int i = 0;
+    S3DB_OP_LIST *pList = (S3DB_OP_LIST *)para;
+    S3DB_INFO_S data;
+
+    for (i = 0; i < argc; i++) {
+        if (NULL == azColName[i] || NULL == argv[i]) {
+            S3FS_PRN_ERR("SQL mistaken data, key is NULL");
+            return 0;
+        }
+        if (0 == strcmp(azColName[i], "ID")) {
+            data.n64Id = strtol(argv[i], NULL, 10);
+        } else if (0 == strcmp(azColName[i], "OPERATER")) {
+            data.nOperator = atoi(argv[i]);
+        } else if (0 == strcmp(azColName[i], "STATUS")) {
+            data.nStatus = atoi(argv[i]);
+        } else {
+            S3FS_PRN_ERR("SQL mistaken data, unkown key:%s", azColName[i]);
+            return 0;
+        }
+
+        pList->push_back(data);
+    }
+
+    return 0;    
+}
+
+int queryFileDB(string &file, S3DB_OP_LIST &list) {
+    int rc = 0;
+    char *pcErrMsg = NULL;
+    char *pSql = NULL;
+    char sql[1024];
+
+    snprintf(sql, sizeof(sql) - 1,  "SELECT ID, OPERATER, STATUS from record WHERE FILE = %s;", file.c_str());
+    
+    rc = sqlite3_exec(m_pSql3, sql, queryFileCB, (void *)&list, &pcErrMsg);
+    if(SQLITE_OK != rc){
+        S3FS_PRN_ERR("SQL remove failed(file:%lld, rc:%d, msg: %s)", file.c_str(),  rc, pcErrMsg);
+
+        sqlite3_free(pcErrMsg);
+        return rc;
+    }
+
+
+    return 0;
+}
+
 int main(int n, char *x[]) {
     int rc = 0;
 	
@@ -150,6 +217,16 @@ int main(int n, char *x[]) {
 	
 	
 	loadTable();
+	
+	S3DB_OP_LIST m;
+	queryFileDB("/root", m);
+	
+	S3DB_OP_LIST::iterator it = m.begin();
+	for ( ; it != m.end(); it++) { 
+		printf(" %lld\n",(*it).n64Id);
+		printf(" %d\n",(*it).nOperator);
+		printf(" %d\n",(*it).nStatus);	
+	}
 	
 	
 	

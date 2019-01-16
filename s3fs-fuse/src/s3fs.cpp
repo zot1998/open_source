@@ -52,6 +52,8 @@
 #include "fdcache.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
+#include "s3fs_rsync.h"
+
 #include "s3fs_io.h"
 
 using namespace std;
@@ -3442,6 +3444,13 @@ static void* s3fs_init(struct fuse_conn_info* conn)
      conn->want |= FUSE_CAP_BIG_WRITES;
   }
 
+  int rc = 0;
+  rc = S3RSync::init();
+  if (rc) {
+    S3FS_PRN_CRIT("S3RSync::init failed(%d).", rc);
+    return rc;  
+  }
+
   return NULL;
 }
 
@@ -4264,6 +4273,8 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       if ((ret = set_bucket(arg))){
         return ret;
       }
+
+      S3RSync::Instance()->setBucket(bucket.c_str());
       return 0;
     }
     else if (!strcmp(arg, "s3fs")) {
@@ -4364,7 +4375,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       string strCacheHomeDir = strchr(arg, '=') + sizeof(char);
       trim_path(strCacheHomeDir);        
       FdManager::SetCacheDir(strCacheHomeDir + "/data");
-      S3DB::Instance()->setPath(strCacheHomeDir + "/db", bucket);
+      S3RSync::Instance()->setCacheDir(strCacheHomeDir);
       return 0;
     }
     if(0 == STR2NCMP(arg, "check_cache_dir_exist")){

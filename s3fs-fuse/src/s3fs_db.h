@@ -1,28 +1,36 @@
 
-#ifndef S3FS_DB_H_
-#define S3FS_DB_H_
+#ifndef _S3FS_DB_H_
+#define _S3FS_DB_H_
 
+#include <list>
+#include <map>
+#include <string>
+#include <pthread.h>
+#include <sqlite3.h>
 
-/*
-format:
-opindex file    status time
-u64     string  int    string
-
-*/
 
 typedef struct _S3DB_INFO_S {
-    unsigned long long u64Index;
-    int       nOperator;
-    int       nStatus;    
+    std::string  strFile;
+    long int     n64Id;
+    int          nOperator;
+    int          nStatus;
+
+    _S3DB_INFO_S() {
+        strFile.clear();
+        n64Id = 0;
+        nOperator = 0;
+        nStatus = 0;
+    }
 }S3DB_INFO_S;
+typedef std::list<S3DB_INFO_S> S3DB_LIST_S;
 
-typedef struct _S3DB_OP_KEY {
-    unsigned long long u64Index;
-    string path;
-}S3DB_OP_KEY;
+#define S3DB_OP_ADD 1
+#define S3DB_OP_DEL 2
 
-typedef list<S3DB_INFO_S>             S3DB_OP_LIST;
-typedef map<S3DB_OP_KEY, S3DB_INFO_S> S3DB_OP_KEY_MAP;
+#define S3DB_STATUS_INIT       1
+#define S3DB_STATUS_PROCESSING 2
+#define S3DB_STATUS_DONE       3
+
 
 
 class S3DB
@@ -31,53 +39,38 @@ class S3DB
         static S3DB & Instance(void) {
             return m_instance;
         }
-        int init(void);        
         
-        void setPath(string &stDir, string &strBucketName);
+        int init(const char *pDBFile);
 
-        
-
-        int addRecord(string stPath);
-        int delRecord(string stPath);
-
-        
-        
-
+        int insertDB(const char *pFile, int nOperator, int nStatus);
+        int updateDB(long int id, int nStatus);
+        int removeDB(long int id);
+        int queryAheadDB(S3DB_LIST_S &list, int count = 10);
+        int queryDB(S3DB_LIST_S &list, const char *pFile = NULL, int nOperator = -1, int nStatus = -1, int nCount = -1);
     private:
         S3DB();
         ~S3DB();
 
-        int insertDB(unsigned long long key, string &file, int nOperator, int nStatus);
-        int updateDB(unsigned long long key, int nStatus);
-        int removeDB(unsigned long long key);
-        int queryFileDB(string &file, S3DB_OP_LIST &list);
+        int insertDB(long int id, const char *pFile, int nOperator, int nStatus);
 
-        static int queryFileCB(void *para, int argc, char **argv, char **azColName);
         static int queryMaxIDCB(void *para, int argc, char **argv, char **azColName);
-        static int queryMinIDCB(void *para, int argc, char **argv, char **azColName);
-        
+        static int queryCB(void *para, int argc, char **argv, char **azColName);
 
+        long int getNextID(void);
+        
         int createTable(void);
-        int loadTable(void);
-        unsigned long long getIndex(void);
-        
-
+        int loadMaxID(void);        
+   
     private:
-        static S3DB m_instance;
-        string      m_strDbDir;
-        string      m_strDbFile;
-        long int    m_n64OpIndex;
-        pthread_mutex_t    m_stLock;
+        static S3DB      m_instance;
+        std::string      m_strDbFile;
+        long int         m_n64MaxID;
+        pthread_mutex_t  m_stLock;
 
-        sqlite3    *m_pSql3;
-        
-        
-        
-        
-        
-        
-        
+        sqlite3         *m_pSql3;
 };
-#endif // S3FS_DB_H_
+
+
+#endif // _S3FS_DB_H_
 
 
