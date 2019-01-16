@@ -8,10 +8,12 @@
 #include <pthread.h>
 #include <sqlite3.h>
 
+#define uint64_t long long int
+
 
 typedef struct _S3DB_INFO_S {
     std::string  strFile;
-    long int     n64Id;
+    uint64_t   n64Id;
     int          nOperator;
     int          nStatus;
 
@@ -43,20 +45,20 @@ class S3DB
         int init(const char *pDBFile);
 
         int insertDB(const char *pFile, int nOperator, int nStatus);
-        int updateDB(long int id, int nStatus);
-        int removeDB(long int id);
+        int updateDB(uint64_t id, int nStatus);
+        int removeDB(uint64_t id);
         int queryAheadDB(S3DB_LIST_S &list, int count = 10);
         int queryDB(S3DB_LIST_S &list, const char *pFile = NULL, int nOperator = -1, int nStatus = -1, int nCount = -1);
     private:
         S3DB();
         ~S3DB();
 
-        int insertDB(long int id, const char *pFile, int nOperator, int nStatus);
+        int insertDB(uint64_t id, const char *pFile, int nOperator, int nStatus);
 
         static int queryMaxIDCB(void *para, int argc, char **argv, char **azColName);
         static int queryCB(void *para, int argc, char **argv, char **azColName);
 
-        long int getNextID(void);
+        uint64_t getNextID(void);
         
         int createTable(void);
         int loadMaxID(void);        
@@ -64,7 +66,7 @@ class S3DB
     private:
         static S3DB      m_instance;
         std::string      m_strDbFile;
-        long int         m_n64MaxID;
+        uint64_t         m_n64MaxID;
         pthread_mutex_t  m_stLock;
 
         sqlite3         *m_pSql3;

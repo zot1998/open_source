@@ -68,7 +68,7 @@ int S3DB::insertDB(const char *pFile, int nOperator, int nStatus) {
     return insertDB(getNextID(), pFile, nOperator, nStatus);
 }
 
-int S3DB::insertDB(long int id, const char *pFile, int nOperator, int nStatus) {
+int S3DB::insertDB(uint64_t id, const char *pFile, int nOperator, int nStatus) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
@@ -91,7 +91,7 @@ int S3DB::insertDB(long int id, const char *pFile, int nOperator, int nStatus) {
     return 0;
 }
 
-int S3DB::updateDB(long int id, int nStatus) {
+int S3DB::updateDB(uint64_t id, int nStatus) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
@@ -111,7 +111,7 @@ int S3DB::updateDB(long int id, int nStatus) {
     return 0;
 }
 
-int S3DB::removeDB(long int id) {
+int S3DB::removeDB(uint64_t id) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
@@ -260,7 +260,7 @@ int S3DB::createTable(void) {
 
 int S3DB::queryMaxIDCB(void *para, int argc, char **argv, char **azColName) {
     int i;
-    long int *pMaxId = (long int *)para;
+    uint64_t *pMaxId = (uint64_t *)para;
     if (NULL == pMaxId || NULL == argv || NULL == azColName) {
         S3FS_PRN_ERR("Query maxid invalid para");
         return 0;
@@ -299,8 +299,8 @@ int S3DB::loadMaxID(void) {
 
 
 
-long int S3DB::getNextID(void) {
-    long int id = 0;
+uint64_t S3DB::getNextID(void) {
+    uint64_t id = 0;
     pthread_mutex_lock(&m_stLock);
     id = ++m_n64MaxID;
     pthread_mutex_unlock(&m_stLock);

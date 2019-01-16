@@ -39,6 +39,8 @@ int main(int argc, char *argv[])
 {
     int rc = 0;
 
+    printf("=======================:%d\n",sizeof(long long int));
+
     S3RSync::Instance().setBucket("test");
     S3RSync::Instance().setCacheDir("./");
 
