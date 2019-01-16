@@ -197,7 +197,7 @@ int S3DB::queryDB(S3DB_LIST_S &list, const char *pFile, int nOperator, int nStat
 }
 
 int S3DB::queryAheadDB(S3DB_LIST_S &list, int count) {
-    return queryCB(list, NULL, -1, -1, count);
+    return queryDB(list, NULL, -1, -1, count);
 }
 
 int S3DB::queryCB(void *para, int argc, char **argv, char **azColName) {

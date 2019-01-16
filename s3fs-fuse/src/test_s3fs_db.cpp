@@ -39,9 +39,9 @@ int main(int argc, char *argv[])
     for ( ; it != m.end(); it++) 
     {       
         printf(" %s, len:%d #",(*it).strFile.c_str(), strlen((*it).strFile.c_str()));
-        printf(" %lld, #",(*it).info.n64Id);     
-        printf(" %d, #",(*it).info.nOperator);        
-        printf(" %d\n",(*it).info.nStatus);      
+        printf(" %lld, #",(*it).n64Id);     
+        printf(" %d, #",(*it).nOperator);        
+        printf(" %d\n",(*it).nStatus);      
     }
 
     

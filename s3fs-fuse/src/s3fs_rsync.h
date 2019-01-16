@@ -36,7 +36,7 @@ class S3RSync
 
         void resetStatus(void);
 
-        void startThread(void);
+        int  startThread(void);
 
         static void * ThreadLoop(void *pArg);
 

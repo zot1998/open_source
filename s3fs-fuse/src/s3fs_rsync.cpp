@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include "s3fs_rsync.h"
 
 //#include "s3fs_util.h"
@@ -10,9 +13,8 @@
 #define S3FS_PRN_WARN printf
 #define S3FS_PRN_INFO printf
 
-S3DB S3DB::m_instance;
-bool       m_bRunFlag = true;
-
+bool    S3RSync::m_bRunFlag = true;
+S3RSync S3RSync::m_instance;
 
 S3RSync::S3RSync() {
     m_strCacheDir.clear();
@@ -69,7 +71,7 @@ void S3RSync::resetStatus(void) {
     }
     list.clear();
 
-    return 0;
+    return;
 }
 
 
