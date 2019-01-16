@@ -97,7 +97,7 @@ void *S3RSync::ThreadLoop(void *pArg) {
     while (m_bRunFlag) {
         rc = S3RSync::Instance().rsync();
         
-        usleep(10*1000);
+        usleep(1000*1000);
     }
 }
 

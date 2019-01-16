@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <limits>
 #include <stdint.h>
 #include <string>
@@ -21,14 +22,16 @@ void test_base64()
 }
 
 int add(const char *pFile) {
-    printf("---- add ----: %s\n",pFile);
+    int rc = rand()%2;
+    printf("---- add ----: %s, %d\n",pFile, rc);
 
-    return 0;
+    return rc;
 }
 int del(const char *pFile) {
-    printf("---- del ----: %s\n",pFile);
+    int rc = rand()%2;
+    printf("---- del ----: %s, %d\n",pFile, rc);
 
-    return 0;
+    return rc;
 }
 
 
