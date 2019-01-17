@@ -9,8 +9,8 @@
 #include "s3fs_db.h"
 
 
-typedef int (*RSYNC_ADD)(const char *pFile);
-typedef int (*RSYNC_DEL)(const char *pFile);
+typedef int (*RSYNC_ADD)(const char *pFile, mode_t mode);
+typedef int (*RSYNC_DEL)(const char *pFile, mode_t mode);
 
 
 class S3RSync

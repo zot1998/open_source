@@ -133,7 +133,7 @@ time_t get_lastmodified(const char* s);
 time_t get_lastmodified(headers_t& meta);
 bool is_need_check_obj_detail(headers_t& meta);
 
-void real_path(std::string &path);
+std::string rebuild_path(const char *pPath, bool bSeparator = false);
 
 void show_usage(void);
 void show_help(void);

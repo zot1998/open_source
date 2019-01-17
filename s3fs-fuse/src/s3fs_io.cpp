@@ -35,7 +35,7 @@
 
 
 //get_local_fent
-int s3fs_generate_cachefile(const char* path, struct stat* stbuf){
+int s3fsLocalCreate(const char* path, struct stat* stbuf){
     string cache_path;
     FdManager::MakeCachePath(path, cache_path, false, false);
 
@@ -85,7 +85,7 @@ int s3fs_generate_cachefile(const char* path, struct stat* stbuf){
     return 0;
 }
 
-int s3fs_remove_cachedir(const char* path) {
+int s3fsLocalRmdir(const char* path) {
     string cache_path;
     FdManager::MakeCachePath(path, cache_path, false, false);
     if (0 == cache_path.size()) {
@@ -102,6 +102,172 @@ int s3fs_remove_cachedir(const char* path) {
     return 0;
 }
 
+
+
+//s3fs_rmdir
+int s3fsRemoteRmDir(const char* path) {
+    int rc = 0;
+
+    // directory must be empty
+    if(directory_empty(path) != 0){
+        return -ENOTEMPTY;
+    }
+
+    struct stat stbuf = {0};
+    rc = s3fsGetRemoteAttr(path, &stbuf);
+    if (rc) {
+        return rc;
+    }
+
+    if (!S_ISDIR(stbuf.st_mode)) {
+        S3FS_PRN_WARN("remove remote dir(%s), but remote is not dir.", path);
+        return 0;
+    }
+
+    std::string strPath = rebuild_path(path, true);
+
+    S3fsCurl s3fscurl;
+    rc = s3fscurl.DeleteRequest(strPath.c_str());
+    s3fscurl.DestroyCurlHandle();
+
+    return rc;
+}
+
+//s3fs_unlink
+int s3fsRemoteRmFile(const char* path) {
+    int rc = 0;
+
+    struct stat stbuf = {0};
+    rc = s3fsGetRemoteAttr(path, &stbuf);
+    if (rc) {
+        return rc;
+    }
+
+    if (S_ISDIR(stbuf.st_mode)) {
+        S3FS_PRN_WARN("remove remote file(%s), but remote is dir.", path);
+        return 0;
+    }
+
+    std::string strPath = rebuild_path(path, false);
+    S3fsCurl s3fscurl;
+    rc = s3fscurl.DeleteRequest(strPath.c_str());
+
+    return rc;
+}
+int s3fsRemoteRm(const char* path, mode_t mode) {    
+    if (S_ISDIR(mode)) {
+        return s3fsRemoteRmDir(path);
+    } else {
+        return s3fsRemoteRmFile(path);
+    }
+}
+
+
+int s3fsGetRemoteAttr(const char* path, struct stat* pstbuf)
+{
+    int          result = -1;
+    headers_t    tmpHead;    
+    S3fsCurl     s3fscurl;
+    bool         forcedir = false;
+
+    memset(pstbuf, 0, sizeof(struct stat));
+    if(0 == strcmp(path, "/") || 0 == strcmp(path, ".")){
+        pstbuf->st_nlink = 1; // see fuse faq
+        pstbuf->st_mode  = mp_mode;
+        pstbuf->st_uid   = is_s3fs_uid ? s3fs_uid : mp_uid;
+        pstbuf->st_gid   = is_s3fs_gid ? s3fs_gid : mp_gid;
+        return 0;
+    }
+
+    std::string strpath;
+    // At first, check path
+    strpath     = rebuild_path(path, false);
+    result      = s3fscurl.HeadRequest(strpath.c_str(), &tmpHead);
+    s3fscurl.DestroyCurlHandle();
+    // if not found target path object, do over checking
+    if(0 != result){
+        strpath = rebuild_path(path, true);
+        result  = s3fscurl.HeadRequest(strpath.c_str(), &tmpHead);
+        s3fscurl.DestroyCurlHandle();
+        
+        if(0 == result){
+            //最后一定是'/'
+            strpath = strpath.substr(0, strpath.length() - 1);
+            if(-ENOTEMPTY == directory_empty(strpath.c_str())){
+                // found "no dir object".
+                strpath  += "/";                
+                result    = 0;
+                forcedir = true;
+            }
+        }
+    }else{
+        if(is_need_check_obj_detail(tmpHead)){
+            // check a case of that "object" does not have attribute and "object" is possible to be directory.
+            if(-ENOTEMPTY == directory_empty(strpath.c_str())){
+                // found "no dir object".
+                strpath  += "/";
+                result    = 0;
+                forcedir = true;
+            }
+        }
+    }
+
+    // cache size is Zero -> only convert.
+    if(!convert_header_to_stat(strpath.c_str(), tmpHead, pstbuf, forcedir)){
+      S3FS_PRN_ERR("failed convert headers to stat[path=%s]", strpath.c_str());
+      return -ENOENT;
+    }
+    
+    return result;
+}
+
+//s3fs_flush
+int s3fsRemoteSyncFile(const char* path, mode_t mode) {
+    int rc = 0;
+    string cache_path;
+    headers_t meta;
+    FdManager::MakeCachePath(path, cache_path, false, false);
+
+    struct stat stAttr = {0};
+    if(0 != (rc = stat(cache_path.c_str(), &stAttr))){
+        S3FS_PRN_WARN("Not find local file(%s), rc:%d.", cache_path.c_str(), rc);
+        return 0;
+    }
+
+    if (S_ISDIR(stAttr.st_mode)) {
+        S3FS_PRN_WARN("Try to sync file(%s), but local is dir", cache_path.c_str());
+        return 0;
+    }
+
+    int fd = open(cache_path.c_str(), O_RDWR);
+    if (fd < 0) {
+        S3FS_PRN_WARN("failed to open file(%s)", cache_path.c_str());
+        return -EIO;
+    }
+
+    meta["x-amz-meta-mtime"] = str(stAttr.st_mtime);
+    meta["x-amz-meta-uid"]   = str(stAttr.st_uid);
+    meta["x-amz-meta-gid"]   = str(stAttr.st_gid);
+    
+    if(stAttr.st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
+        // Additional time is needed for large files
+        time_t backup = 0;
+        if(120 > S3fsCurl::GetReadwriteTimeout()){
+            backup = S3fsCurl::SetReadwriteTimeout(120);
+        }
+        rc = S3fsCurl::ParallelMultipartUploadRequest(path, meta, fd);
+        if(0 != backup){
+            S3fsCurl::SetReadwriteTimeout(backup);
+        }
+    } else {
+        S3fsCurl s3fscurl(true);
+        rc = s3fscurl.PutRequest(path, meta, fd);
+    }
+
+    close(fd);
+
+    return rc;
+}
 
 
 

@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sqlite3.h>
 //#include "s3fs_util.h"
-#define trim_path(x)
+#define rebuild_path(x)
 #define S3FS_PRN_ERR printf
 #define S3FS_PRN_WARN printf
 #define S3FS_PRN_INFO printf
@@ -64,22 +64,36 @@ int S3DB::init(const char *pDBFile) {
     return 0;
 }
 
-int S3DB::insertDB(const char *pFile, int nOperator, int nStatus) {
-    return insertDB(getNextID(), pFile, nOperator, nStatus);
-}
-
-int S3DB::insertDB(uint64_t id, const char *pFile, int nOperator, int nStatus) {
+int S3DB::insertDB(S3DB_INFO_S &info) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
     size_t nSqlLen = 1024 * 5;
     pSql = new char[nSqlLen];
 
-    snprintf(pSql, nSqlLen - 1,  "INSERT INTO record values(%lld,'%s',%d,%d);", id, pFile, nOperator, nStatus);
+    if (0 == info.n64Id) {
+        info.n64Id = getNextID();
+    }
+
+    snprintf(pSql, nSqlLen - 1,  "INSERT INTO record values(%lld,'%s',%d,%d,%d,%lld);", 
+                                 info.n64Id, 
+                                 info.strFile.c_str(), 
+                                 info.nOperator, 
+                                 info.nStatus,
+                                 info.nMode,
+                                 info.n64Size);
 
     rc = sqlite3_exec(m_pSql3, pSql, NULL, 0, &pcErrMsg);
     if(SQLITE_OK != rc){
-        S3FS_PRN_ERR("SQL insert table failed(id:%lld, file:%s, op:%d,status:%d, rc:%d, msg: %s)",id, pFile, nOperator, nStatus, rc, pcErrMsg);
+        S3FS_PRN_ERR("SQL insert table failed(id:%lld, file:%s, op:%d,status:%d, mode:0x%x,size:%lld, rc:%d, msg: %s)",
+                     info.n64Id, 
+                     info.strFile.c_str(), 
+                     info.nOperator, 
+                     info.nStatus, 
+                     info.nMode,
+                     info.n64Size,
+                     rc, 
+                     pcErrMsg);
 
         delete [] pSql;
         sqlite3_free(pcErrMsg);
@@ -91,7 +105,7 @@ int S3DB::insertDB(uint64_t id, const char *pFile, int nOperator, int nStatus) {
     return 0;
 }
 
-int S3DB::updateDB(uint64_t id, int nStatus) {
+int S3DB::updateDB(int64_t id, int nStatus) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
@@ -111,7 +125,7 @@ int S3DB::updateDB(uint64_t id, int nStatus) {
     return 0;
 }
 
-int S3DB::removeDB(uint64_t id) {
+int S3DB::removeDB(int64_t id) {
     int rc = 0;
     char *pcErrMsg = NULL;
     char *pSql = NULL;
@@ -142,7 +156,7 @@ int S3DB::queryDB(S3DB_LIST_S &list, const char *pFile, int nOperator, int nStat
     pSql = new char[nSqlLen];
     memset(pSql, 0, nSqlLen);
     
-    snprintf(pSql, nSqlLen - 1,  "SELECT ID, FILE, OPERATER, STATUS from record");
+    snprintf(pSql, nSqlLen - 1,  "SELECT ID, FILE, OPERATER, STATUS, MODE, SIZE from record");
     if (NULL != pFile) {
         nCurLen = strlen(pSql);
         snprintf(pSql + nCurLen, nSqlLen - nCurLen - 1, " WHERE FILE = '%s'", pFile);
@@ -199,6 +213,29 @@ int S3DB::queryDB(S3DB_LIST_S &list, const char *pFile, int nOperator, int nStat
 int S3DB::queryAheadDB(S3DB_LIST_S &list, int count) {
     return queryDB(list, NULL, -1, -1, count);
 }
+int S3DB::queryLastOP(const char *pFile, int & nOperator) {
+    int rc = 0;
+    if (NULL == pFile) {
+        S3FS_PRN_ERR("Query lastOP invalid para");
+        return -1;
+    }
+    nOperator = 0;
+
+    S3DB_LIST_S list;
+    rc = queryDB(list, pFile);
+    if (rc) {
+        S3FS_PRN_ERR("Query file(%s) db return failed(%d)", pFile, rc);
+        return rc;
+    }
+    if (0 == list.size()) {
+        return 0;
+    }
+    
+    nOperator = (*(list.rbegin())).nOperator;
+    list.clear();
+    return rc;
+}
+
 
 int S3DB::queryCB(void *para, int argc, char **argv, char **azColName) {
     int i = 0;
@@ -223,7 +260,11 @@ int S3DB::queryCB(void *para, int argc, char **argv, char **azColName) {
             data.nOperator = atoi(argv[i]);
         } else if (0 == strcmp(azColName[i], "STATUS")) {
             data.nStatus = atoi(argv[i]);
-        } else {
+        } else if (0 == strcmp(azColName[i], "MODE")) {
+            data.nMode = atoi(argv[i]);
+        } else if (0 == strcmp(azColName[i], "SIZE")) {
+            data.n64Size = strtol(argv[i], NULL, 10);
+        }else {
             S3FS_PRN_ERR("SQL mistaken data, unkown key:%s", azColName[i]);
             return 0;
         }
@@ -243,10 +284,12 @@ int S3DB::createTable(void) {
     char *pcErrMsg = NULL;
     
     const char *sql = "CREATE TABLE IF NOT EXISTS record("  \
-          "ID INTEGER PRIMARY KEY     NOT NULL," \
+          "ID         INTEGER PRIMARY KEY     NOT NULL," \
           "FILE       TEXT," \
           "OPERATER   INT," \
-          "STATUS     INT);";
+          "STATUS     INT,"\
+          "MODE       INT,"\
+          "SIZE       INTEGER);";
 
     rc = sqlite3_exec(m_pSql3, sql, NULL, 0, &pcErrMsg);
     if(SQLITE_OK != rc){
@@ -260,7 +303,7 @@ int S3DB::createTable(void) {
 
 int S3DB::queryMaxIDCB(void *para, int argc, char **argv, char **azColName) {
     int i;
-    uint64_t *pMaxId = (uint64_t *)para;
+    int64_t *pMaxId = (int64_t *)para;
     if (NULL == pMaxId || NULL == argv || NULL == azColName) {
         S3FS_PRN_ERR("Query maxid invalid para");
         return 0;
@@ -299,8 +342,8 @@ int S3DB::loadMaxID(void) {
 
 
 
-uint64_t S3DB::getNextID(void) {
-    uint64_t id = 0;
+int64_t S3DB::getNextID(void) {
+    int64_t id = 0;
     pthread_mutex_lock(&m_stLock);
     id = ++m_n64MaxID;
     pthread_mutex_unlock(&m_stLock);

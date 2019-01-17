@@ -961,14 +961,20 @@ bool is_need_check_obj_detail(headers_t& meta)
   return true;
 }
 
-void trim_path(std::string &path) {
-    while (path.size() > 1 && *path.rbegin() == '/') {
+std::string rebuild_path(const char *pPath, bool bSeparator = false) {
+    std::string path = pPath;
+    while (path.size() > 1 && path.back() == '/') {
         path.erase(path.end() -1);
     }
-    
-    return;
-}
 
+    if (bSeparator) {
+        if (path.size() > 1) {
+            path = path + '/';
+        }
+    }
+
+    return path;
+}
 
 //-------------------------------------------------------------------
 // Help

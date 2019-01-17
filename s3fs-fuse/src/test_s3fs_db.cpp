@@ -21,13 +21,13 @@ void test_base64()
 
 }
 
-int add(const char *pFile) {
+int add(const char *pFile, mode_t mode) {
     int rc = rand()%2;
     printf("---- add ----: %s, %d\n",pFile, rc);
 
     return rc;
 }
-int del(const char *pFile) {
+int del(const char *pFile, mode_t mode) {
     int rc = rand()%2;
     printf("---- del ----: %s, %d\n",pFile, rc);
 
@@ -50,17 +50,22 @@ int main(int argc, char *argv[])
     rc = S3RSync::Instance().init();
     ASSERT_EQUALS(rc, 0);
 
-    #if 1
-    S3DB::Instance().insertDB("/root",   S3DB_OP_ADD, S3DB_STATUS_INIT);
-    S3DB::Instance().insertDB("/root/2", S3DB_OP_DEL, S3DB_STATUS_INIT);
-    S3DB::Instance().insertDB("/root/3", S3DB_OP_ADD, S3DB_STATUS_INIT);
-    S3DB::Instance().insertDB("/root/4", S3DB_OP_ADD, S3DB_STATUS_INIT);
-    S3DB::Instance().insertDB("/root/3", S3DB_OP_DEL, S3DB_STATUS_INIT);
-    S3DB::Instance().insertDB("/root/3", S3DB_OP_ADD, S3DB_STATUS_INIT);
-    #endif
-    S3DB::Instance().insertDB("/root/ฮารว", S3DB_OP_ADD, S3DB_STATUS_INIT);
 
-    S3DB::Instance().insertDB("/root/3", S3DB_OP_DEL, S3DB_STATUS_INIT);
+    S3DB_INFO_S info;	 
+    #if 1    
+    info.reset();info.strFile = "/root"; info.nOperator = S3DB_OP_ADD;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    info.reset();info.strFile = "/root/2"; info.nOperator = S3DB_OP_DEL;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    info.reset();info.strFile = "/root/3"; info.nOperator = S3DB_OP_ADD;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    info.reset();info.strFile = "/root/4"; info.nOperator = S3DB_OP_ADD;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    info.reset();info.strFile = "/root/3"; info.nOperator = S3DB_OP_DEL;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    info.reset();info.strFile = "/root/3"; info.nOperator = S3DB_OP_ADD;info.nStatus = S3DB_STATUS_INIT;
+    S3DB::Instance().insertDB(info);
+    #endif
 
     S3DB_LIST_S m;	
     S3DB::Instance().queryAheadDB(m);		

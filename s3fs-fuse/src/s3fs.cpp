@@ -592,7 +592,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     }
   }
 
-  result = s3fs_generate_cachefile(path.c_str(), pstat);
+  result = s3fsLocalCreate(path.c_str(), pstat);
   
   return result;
 }
@@ -1079,7 +1079,7 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
   statbuf.st_nlink = 2;
 
   int result = 0;
-  result = s3fs_generate_cachefile(path, &statbuf);
+  result = s3fsLocalCreate(path, &statbuf);
   if (0 != result) {
       S3FS_PRN_WARN("make local dir failed(%s, result:%d)", path, result);
   }
@@ -1174,43 +1174,13 @@ static int s3fs_rmdir(const char* path)
     return -ENOTEMPTY;
   }
 
-  strpath = path;
-  if('/' != strpath[strpath.length() - 1]){
-    strpath += "/";
+  result = s3fsLocalRmdir(path);
+  if (result) {
+    return result;
   }
-  S3fsCurl s3fscurl;
-  result = s3fscurl.DeleteRequest(strpath.c_str());
-  s3fscurl.DestroyCurlHandle();
-  StatCache::getStatCacheData()->DelStat(strpath.c_str());
-
-  // double check for old version(before 1.63)
-  // The old version makes "dir" object, newer version makes "dir/".
-  // A case, there is only "dir", the first removing object is "dir/".
-  // Then "dir/" is not exists, but curl_delete returns 0.
-  // So need to check "dir" and should be removed it.
-  if('/' == strpath[strpath.length() - 1]){
-    strpath = strpath.substr(0, strpath.length() - 1);
-  }
-  if(0 == get_object_attribute(strpath.c_str(), &stbuf, NULL, false)){
-    if(S_ISDIR(stbuf.st_mode)){
-      // Found "dir" object.
-      result = s3fscurl.DeleteRequest(strpath.c_str());
-      s3fscurl.DestroyCurlHandle();
-      StatCache::getStatCacheData()->DelStat(strpath.c_str());
-    }
-  }
-  // If there is no "dir" and "dir/" object(this case is made by s3cmd/s3sync),
-  // the cache key is "dir/". So we get error only once(delete "dir/").
-
-  // check for "_$folder$" object.
-  // This processing is necessary for other S3 clients compatibility.
-  if(is_special_name_folder_object(strpath.c_str())){
-    strpath += "_$folder$";
-    result   = s3fscurl.DeleteRequest(strpath.c_str());
-  }
-  S3FS_MALLOCTRIM(0);
-
-  s3fs_remove_cachedir(path);
+  
+  S3DB_INFO_S record(rebuild_path(path), S3DB_OP_DEL, (mode_t)S_IFDIR);
+  S3DB::Instance().insertDB(record);
 
   return result;
 }
@@ -4372,10 +4342,10 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       return 0;
     }
     if(0 == STR2NCMP(arg, "use_cache=")){
-      string strCacheHomeDir = strchr(arg, '=') + sizeof(char);
-      trim_path(strCacheHomeDir);        
-      FdManager::SetCacheDir(strCacheHomeDir + "/data");
-      S3RSync::Instance()->setCacheDir(strCacheHomeDir);
+      string strCacheHomeDir = rebuild_path(strchr(arg, '=') + sizeof(char));
+      string cacheDataDir = strCacheHomeDir + "/data";
+      FdManager::SetCacheDir(cacheDataDir.c_str());
+      S3RSync::Instance()->setCacheDir(strCacheHomeDir.c_str());
       return 0;
     }
     if(0 == STR2NCMP(arg, "check_cache_dir_exist")){

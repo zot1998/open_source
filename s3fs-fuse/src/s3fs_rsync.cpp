@@ -8,7 +8,7 @@
 #include "s3fs_rsync.h"
 
 //#include "s3fs_util.h"
-#define trim_path(x)
+#define rebuild_path(x)
 #define S3FS_PRN_ERR  printf("\n");printf
 #define S3FS_PRN_WARN printf("\n");printf
 #define S3FS_PRN_INFO printf("\n");printf
@@ -132,6 +132,11 @@ int S3RSync::rsync(void){
         return 0;
     }
 
+    /*
+        TODO...
+        场景: 1. 数据库列表为 删除目录a, 创建文件a ,那么按下面会忽略删除目录a...
+
+    */
     if (lst.size() > 1) {
         S3DB_INFO_S last = lst.back();
         lst.pop_back();
@@ -158,7 +163,7 @@ int S3RSync::rsync(void){
         info = *lst.begin();
 
         if (S3DB_OP_ADD == info.nOperator && m_syncAddFunc) {
-            rc = m_syncAddFunc(info.strFile.c_str());
+            rc = m_syncAddFunc(info.strFile.c_str(), (mode_t)info.nMode);
             if (rc) {
                 //...?
                 S3FS_PRN_ERR("Sync add file(%s, id:%lld) failed(%d)", info.strFile.c_str(), info.n64Id, rc);
@@ -167,7 +172,7 @@ int S3RSync::rsync(void){
         } 
 
         if (S3DB_OP_DEL == info.nOperator && m_syncDelFunc) {
-            rc = m_syncDelFunc(info.strFile.c_str());
+            rc = m_syncDelFunc(info.strFile.c_str(), (mode_t)info.nMode);
             if (rc) {
                 //...?
                 S3FS_PRN_ERR("Sync del file(%s, id:%lld) failed(%d)", info.strFile.c_str(), info.n64Id, rc);
