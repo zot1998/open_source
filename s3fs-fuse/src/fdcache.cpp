@@ -1787,6 +1787,7 @@ pthread_mutex_t FdManager::cache_cleanup_lock;
 pthread_mutex_t FdManager::reserved_diskspace_lock;
 bool            FdManager::is_lock_init(false);
 string          FdManager::cache_dir("");
+string          FdManager::cache_pagelist_dir("");
 bool            FdManager::check_cache_dir_exist(false);
 size_t          FdManager::free_disk_space = 0;
 
@@ -1802,6 +1803,17 @@ bool FdManager::SetCacheDir(const char* dir)
   }
   return true;
 }
+bool FdManager::SetCachePageDir(const char* dir)
+{
+    if(!dir || '\0' == dir[0]){
+        cache_pagelist_dir = "";
+    }else{
+        cache_pagelist_dir = dir;
+    }
+    return true;
+}
+
+
 
 bool FdManager::DeleteCacheDirectory(void)
 {

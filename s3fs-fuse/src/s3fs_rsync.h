@@ -23,8 +23,6 @@ class S3RSync
         int  init(void);
         void exit(void);
 
-        void setCacheDir(const char *pDir)    { m_strCacheDir = pDir; }
-        void setBucket(const char *pBucket)    { m_strBucketName = pBucket;}
         void setSyncAddFunc(RSYNC_ADD func) { m_syncAddFunc = func;}
         void setSyncDelFunc(RSYNC_DEL func) { m_syncDelFunc = func;}
         
@@ -47,9 +45,6 @@ class S3RSync
         static bool      m_bRunFlag;
          
         pthread_t        m_stThreadId;        
-        std::string      m_strCacheDir;
-        std::string      m_strBucketName;
-
         RSYNC_ADD        m_syncAddFunc;
         RSYNC_DEL        m_syncDelFunc;
         

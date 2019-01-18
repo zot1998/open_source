@@ -32,16 +32,18 @@ S3DB::~S3DB() {
     }    
 }
 
+void S3DB::setDir(const char *pDir) {
+    m_strDbDir = pDir;
+    m_strDbFile = pDir + "/sql.db";
+}
 
-
-int S3DB::init(const char *pDBFile) {
+int S3DB::init(void) {
     int rc = 0;
-    if (NULL == pDBFile) {
-        S3FS_PRN_ERR("pDBFile is NULL");
+    if (0 == m_strDbDir.size()) {
+        S3FS_PRN_ERR("cache db is not configed");
         return -1;
     }
     
-    m_strDbFile = pDBFile;
     
     rc = sqlite3_open(m_strDbFile.c_str(), &m_pSql3);
     if (rc) {

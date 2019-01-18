@@ -70,8 +70,10 @@ class S3DB
         static S3DB & Instance(void) {
             return m_instance;
         }
-        
-        int init(const char *pDBFile);
+
+        void setDir(const char *pDir);
+            
+        int init(void);
 
         int insertDB(S3DB_INFO_S &info);
         int updateDB(int64_t id, int nStatus);
@@ -101,8 +103,9 @@ class S3DB
    
     private:
         static S3DB      m_instance;
+        std::string      m_strDbDir;
         std::string      m_strDbFile;
-        int64_t         m_n64MaxID;
+        int64_t          m_n64MaxID;
         pthread_mutex_t  m_stLock;
 
         sqlite3         *m_pSql3;

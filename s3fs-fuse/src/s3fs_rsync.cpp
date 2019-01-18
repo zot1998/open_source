@@ -17,8 +17,6 @@ bool    S3RSync::m_bRunFlag = true;
 S3RSync S3RSync::m_instance;
 
 S3RSync::S3RSync() {
-    m_strCacheDir.clear();
-    m_strBucketName.clear();
 
     m_stThreadId = (pthread_t)-1;
     
@@ -29,13 +27,8 @@ S3RSync::~S3RSync() {
 
 int S3RSync::init(void){
     int rc = 0;
-    if (0 == m_strCacheDir.size() || 0 == m_strBucketName.size()) {
-        S3FS_PRN_ERR("Not config cachedir(%s) or bucket(%s).", m_strCacheDir.c_str(), m_strBucketName.c_str());
-        return -1;
-    }
 
-    std::string strDbFile = m_strCacheDir + "/db/" + m_strBucketName + "/sql.db";
-    rc = S3DB::Instance().init(strDbFile.c_str());
+    rc = S3DB::Instance().init();
     if (rc) {
         return rc;
     }

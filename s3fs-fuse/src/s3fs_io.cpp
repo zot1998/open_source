@@ -34,14 +34,212 @@
 #include "addhead.h"
 
 
+
+S3Ent::S3Ent(const char *path):m_strPath(rebuild_path(path, false)), 
+                                  m_strPathDir(m_strPath + "/"),
+                                  m_strMatchPath(m_strPath)
+                                  
+{
+    init();
+}
+S3Ent::S3Ent(const std::string &path):m_strPath(rebuild_path(path.c_str(), false)), 
+                                         m_strPathDir(m_strPath + "/"),
+                                         m_strMatchPath(m_strPath)
+{
+    init();
+}
+S3Ent::~S3Ent()
+{
+    
+}
+int S3Ent::init(void)
+{    
+    int rc = 0;   
+
+    m_bLocalExists  = false;
+    m_bRemoteExists = false;
+    m_eRemoteStatus = REMOTE_INIT;
+    
+    memset(&m_stLocalAttr,  0, sizeof(struct stat));
+    memset(&m_stRemoteAttr, 0, sizeof(struct stat));
+
+    string cache_path;
+    m_strCachePath.clear();
+    FdManager::MakeCachePath(m_strPath.c_str(), m_strCachePath, false, false);
+    
+    if(0 == strcmp(m_strPath.c_str(), "/") || 0 == strcmp(m_strPath.c_str(), ".")){
+        m_stLocalAttr.st_nlink = 1; // see fuse faq
+        m_stLocalAttr.st_mode  = mp_mode;
+        m_stLocalAttr.st_uid   = is_s3fs_uid ? s3fs_uid : mp_uid;
+        m_stLocalAttr.st_gid   = is_s3fs_gid ? s3fs_gid : mp_gid;
+
+        memcpy(&m_stRemoteAttr, &m_stLocalAttr, sizeof(struct stat));
+        m_bLocalExists  = true;
+        m_bRemoteExists = true;
+        m_eRemoteStatus = REMOTE_SUCCESS;
+    } else {        
+        rc = stat(m_strPath.c_str(), &m_stLocalAttr);
+        if (0 == rc) {
+            m_bLocalExists = true;
+        }
+    }
+    
+    return 0;
+}
+
+int S3Ent::initRemote(void)
+{
+    //s3fsGetRemoteAttr(const char* path, struct stat* pstbuf)
+    if (REMOTE_INIT != m_eRemoteStatus) {
+        return;
+    }
+
+    int          result = -1;
+    headers_t    meta;    
+    S3fsCurl     s3fscurl;
+    bool         forcedir = false;
+
+    result      = s3fscurl.HeadRequest(m_strPath.c_str(), meta);
+    s3fscurl.DestroyCurlHandle();
+    // if not found target path object, do over checking
+    if(0 != result){
+        result  = s3fscurl.HeadRequest(m_strPathDir.c_str(), meta);
+        s3fscurl.DestroyCurlHandle();
+        if (0 == result) {
+            m_strMatchPath = m_strPathDir;
+        } else {
+            if (-ENOTEMPTY == directory_empty(m_strPath.c_str())){
+                result    = 0;
+                forcedir = true;
+            }
+        }
+    }else{
+        if(is_need_check_obj_detail(meta)){
+            // check a case of that "object" does not have attribute and "object" is possible to be directory.
+            if (-ENOTEMPTY == directory_empty(m_strPath.c_str())){
+                result    = 0;
+                forcedir = true;
+            }
+        }
+    }
+
+    if (0 == result) {
+        convert_header_to_stat(m_strMatchPath.c_str(), meta, &m_stRemoteAttr, forcedir);        
+        if (forcedir) {
+            m_bRemoteEmpty = false;
+        } else {
+            m_bRemoteEmpty = true;
+            if (S_ISDIR(m_stRemoteAttr.st_mode)) {
+                if (-ENOTEMPTY == directory_empty(m_strMatchPath.c_str())){
+                    m_bRemoteEmpty = false;
+                }
+            }
+        }
+        
+        m_bRemoteExists = true;
+        
+        m_eRemoteStatus = REMOTE_SUCCESS;
+    } else if (-ENOENT == result) {
+        m_bRemoteExists = false;
+        m_bRemoteEmpty  = true;
+        m_eRemoteStatus = REMOTE_SUCCESS;
+    } else {
+        m_eRemoteStatus = REMOTE_EXCEPTION;
+    }
+    
+    
+    return;
+}
+
+
+int S3Ent::syncAddToRemote(void)
+{
+    if (!m_bLocalExists) {
+        return -ENOENT;
+    }
+
+    if (m_bRemoteExists) {
+        //TODO...
+        if ((S_ISDIR(m_stLocalAttr.st_mode) && (!S_ISDIR(m_stRemoteAttr.st_mode)))
+            || (!S_ISDIR(m_stLocalAttr.st_mode) && (S_ISDIR(m_stRemoteAttr.st_mode))))
+        {
+            //TODO... how ??
+            S3FS_PRN_WARN("%s local mode(dir:%d) is not match remote(dir:%d)", 
+            m_strPath.c_str(), S_ISDIR(m_stLocalAttr.st_mode), S_ISDIR(m_stRemoteAttr.st_mode));
+        }
+    }
+
+    headers_t meta;
+    if (S_ISDIR(m_stLocalAttr.st_mode)) {
+        meta["Content-Type"]     = string("application/x-directory");
+    }
+    meta["x-amz-meta-uid"]   = str(stAttr.st_uid);
+    meta["x-amz-meta-gid"]   = str(stAttr.st_gid);
+    meta["x-amz-meta-mode"]  = str(stAttr.st_mode);
+    meta["x-amz-meta-mtime"] = str(stAttr.st_mtime);
+
+    int rc = 0;
+    if (S_ISDIR(m_stLocalAttr.st_mode)) {
+        S3fsCurl s3fscurl;
+        rc = s3fscurl.PutRequest(m_strPathDir.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
+    } else {
+        int fd = open(m_strPath.c_str(), O_RDWR);
+        if (fd < 0) {
+            S3FS_PRN_WARN("failed to open file(%s)", m_strPath.c_str());
+            rc = -EIO;            
+        } else {        
+            if(m_stLocalAttr.st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
+                // Additional time is needed for large files
+                time_t backup = 0;
+                if(120 > S3fsCurl::GetReadwriteTimeout()){
+                    backup = S3fsCurl::SetReadwriteTimeout(120);
+                }
+                rc = S3fsCurl::ParallelMultipartUploadRequest(m_strPath.c_str(), meta, fd);
+                if(0 != backup){
+                    S3fsCurl::SetReadwriteTimeout(backup);
+                }
+            } else {
+                S3fsCurl s3fscurl(true);
+                rc = s3fscurl.PutRequest(m_strPath.c_str(), meta, fd);
+            }
+
+            close(fd);
+        }
+    }
+    
+    return rc;
+}
+
+int  S3Ent::syncDelToRemote(void)
+{
+
+
+}
+
+
+
+
+
 //get_local_fent
-int s3fsLocalCreate(const char* path, struct stat* stbuf){
+int s3fsLocalMkFile(const char* path, struct stat* pstAttr){
+
+}
+
+int s3fsLocalMkDir(const char* path, struct stat* pstAttr){
+    
+}
+
+
+
+int s3fsLocalMk(const char* path, struct stat* pstAttr){
+    if (S_ISDIR(stbuf->st_mode)) {
+        return s3fsLocalMkDir(path, pstAttr);
+    } else {
+        return s3fsLocalMkFile(path, pstAttr);
+    }
+}
     string cache_path;
     FdManager::MakeCachePath(path, cache_path, false, false);
-
-    if (0 == cache_path.size()) {
-        return 0;
-    }
   
     if (S_ISREG(stbuf->st_mode)) {
         FdEntity *ent = NULL;
@@ -59,7 +257,7 @@ int s3fsLocalCreate(const char* path, struct stat* stbuf){
         int result = 0;
         S3FS_PRN_INFO("Make cache directory(%s)", path);
 
-        result = mkdir(path, stbuf->st_mode);
+        result = mkdir(cache_path.c_str(), stbuf->st_mode);
         if (0 != result) {
             S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", path, stbuf->st_mode, errno);
             return result;
@@ -70,8 +268,8 @@ int s3fsLocalCreate(const char* path, struct stat* stbuf){
         struct utimbuf n_mtime;
         n_mtime.modtime = time;
         n_mtime.actime  = time;
-        if(-1 == utime(cachepath.c_str(), &n_mtime)){
-            S3FS_PRN_ERR("utime failed. errno(%d)", errno);
+        if(-1 == utime(cache_path.c_str(), &n_mtime)){
+            S3FS_PRN_ERR("utime failed. errno(%d)", -errno);
             return -errno;
         }
     
@@ -163,111 +361,17 @@ int s3fsRemoteRm(const char* path, mode_t mode) {
 }
 
 
-int s3fsGetRemoteAttr(const char* path, struct stat* pstbuf)
-{
-    int          result = -1;
-    headers_t    tmpHead;    
-    S3fsCurl     s3fscurl;
-    bool         forcedir = false;
 
-    memset(pstbuf, 0, sizeof(struct stat));
-    if(0 == strcmp(path, "/") || 0 == strcmp(path, ".")){
-        pstbuf->st_nlink = 1; // see fuse faq
-        pstbuf->st_mode  = mp_mode;
-        pstbuf->st_uid   = is_s3fs_uid ? s3fs_uid : mp_uid;
-        pstbuf->st_gid   = is_s3fs_gid ? s3fs_gid : mp_gid;
-        return 0;
-    }
 
-    std::string strpath;
-    // At first, check path
-    strpath     = rebuild_path(path, false);
-    result      = s3fscurl.HeadRequest(strpath.c_str(), &tmpHead);
-    s3fscurl.DestroyCurlHandle();
-    // if not found target path object, do over checking
-    if(0 != result){
-        strpath = rebuild_path(path, true);
-        result  = s3fscurl.HeadRequest(strpath.c_str(), &tmpHead);
-        s3fscurl.DestroyCurlHandle();
-        
-        if(0 == result){
-            //最后一定是'/'
-            strpath = strpath.substr(0, strpath.length() - 1);
-            if(-ENOTEMPTY == directory_empty(strpath.c_str())){
-                // found "no dir object".
-                strpath  += "/";                
-                result    = 0;
-                forcedir = true;
-            }
-        }
-    }else{
-        if(is_need_check_obj_detail(tmpHead)){
-            // check a case of that "object" does not have attribute and "object" is possible to be directory.
-            if(-ENOTEMPTY == directory_empty(strpath.c_str())){
-                // found "no dir object".
-                strpath  += "/";
-                result    = 0;
-                forcedir = true;
-            }
-        }
-    }
 
-    // cache size is Zero -> only convert.
-    if(!convert_header_to_stat(strpath.c_str(), tmpHead, pstbuf, forcedir)){
-      S3FS_PRN_ERR("failed convert headers to stat[path=%s]", strpath.c_str());
-      return -ENOENT;
-    }
-    
-    return result;
-}
-
-//s3fs_flush
-int s3fsRemoteSyncFile(const char* path, mode_t mode) {
-    int rc = 0;
-    string cache_path;
-    headers_t meta;
-    FdManager::MakeCachePath(path, cache_path, false, false);
-
-    struct stat stAttr = {0};
-    if(0 != (rc = stat(cache_path.c_str(), &stAttr))){
-        S3FS_PRN_WARN("Not find local file(%s), rc:%d.", cache_path.c_str(), rc);
-        return 0;
-    }
-
-    if (S_ISDIR(stAttr.st_mode)) {
-        S3FS_PRN_WARN("Try to sync file(%s), but local is dir", cache_path.c_str());
-        return 0;
-    }
-
-    int fd = open(cache_path.c_str(), O_RDWR);
-    if (fd < 0) {
-        S3FS_PRN_WARN("failed to open file(%s)", cache_path.c_str());
-        return -EIO;
-    }
-
-    meta["x-amz-meta-mtime"] = str(stAttr.st_mtime);
-    meta["x-amz-meta-uid"]   = str(stAttr.st_uid);
-    meta["x-amz-meta-gid"]   = str(stAttr.st_gid);
-    
-    if(stAttr.st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
-        // Additional time is needed for large files
-        time_t backup = 0;
-        if(120 > S3fsCurl::GetReadwriteTimeout()){
-            backup = S3fsCurl::SetReadwriteTimeout(120);
-        }
-        rc = S3fsCurl::ParallelMultipartUploadRequest(path, meta, fd);
-        if(0 != backup){
-            S3fsCurl::SetReadwriteTimeout(backup);
-        }
+int s3fsRemoteMk(const char* path, mode_t mode) {
+    if (S_ISDIR(mode)) {
+        return s3fsRemoteMkDir(path);
     } else {
-        S3fsCurl s3fscurl(true);
-        rc = s3fscurl.PutRequest(path, meta, fd);
+        return s3fsRemoteMkFile(path);
     }
-
-    close(fd);
-
-    return rc;
 }
+
 
 
 

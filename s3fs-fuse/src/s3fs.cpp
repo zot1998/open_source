@@ -136,6 +136,7 @@ static bool is_ibm_iam_auth       = false;
 static bool is_use_xattr          = false;
 static bool create_bucket         = false;
 static bool is_sync_getattr       = false;//获取属性时是否同步请求oss
+
 static int64_t singlepart_copy_limit = FIVE_GB;
 static bool is_specified_endpoint = false;
 static int s3fs_init_deferred_exit_status = 0;
@@ -485,7 +486,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   result = stat(cache_path.c_str(), pstbuf);
   if (0 == result) {
     return 0;
-  } else if (-ENOENT == result) {
+  } else if (ENOENT == errno) {
     if (is_sync_getattr) {
       //sync from oss
     } else {
@@ -592,7 +593,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     }
   }
 
-  result = s3fsLocalCreate(path.c_str(), pstat);
+  result = s3fsLocalMk(path.c_str(), pstat);
   
   return result;
 }
@@ -1039,12 +1040,12 @@ static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
   }else if(0 != result){
     return result;
   }
-  result = create_file_object(path, mode, pcxt->uid, pcxt->gid);
-  StatCache::getStatCacheData()->DelStat(path);
-  if(result != 0){
-    return result;
-  }
 
+  if(-1 == (fd = open(cachepath.c_str(), O_CREAT|O_RDWR|O_TRUNC, 0600))){
+        S3FS_PRN_ERR("failed to open file(%s). errno(%d)", cachepath.c_str(), errno);
+        return (0 == errno ? -EIO : -errno);
+      }
+  StatCache::getStatCacheData()->DelStat(path);
 
   FdEntity*   ent;
   headers_t   meta;
@@ -1055,6 +1056,9 @@ static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
   }
   fi->fh = ent->GetFd();
   S3FS_MALLOCTRIM(0);
+
+  S3DB_INFO_S record(rebuild_path(path, false), S3DB_OP_ADD, );
+  S3DB::Instance().insertDB(record);
 
   return 0;
 }
@@ -1079,7 +1083,7 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
   statbuf.st_nlink = 2;
 
   int result = 0;
-  result = s3fsLocalCreate(path, &statbuf);
+  result = s3fsLocalMk(path, &statbuf);
   if (0 != result) {
       S3FS_PRN_WARN("make local dir failed(%s, result:%d)", path, result);
   }
@@ -4342,10 +4346,18 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       return 0;
     }
     if(0 == STR2NCMP(arg, "use_cache=")){
-      string strCacheHomeDir = rebuild_path(strchr(arg, '=') + sizeof(char));
-      string cacheDataDir = strCacheHomeDir + "/data";
-      FdManager::SetCacheDir(cacheDataDir.c_str());
-      S3RSync::Instance()->setCacheDir(strCacheHomeDir.c_str());
+      string cacheDir = rebuild_path(strchr(arg, '=') + sizeof(char));
+      FdManager::SetCacheDir(cacheDir.c_str());
+      return 0;
+    }
+    if(0 == STR2NCMP(arg, "cachedb_dir=")){
+      string cacheDir = rebuild_path(strchr(arg, '=') + sizeof(char));
+      S3DB::Instance()->setDir(cacheDir.c_str());
+      return 0;
+    }
+    if(0 == STR2NCMP(arg, "cachepage_dir=")){
+      string cacheDir = rebuild_path(strchr(arg, '=') + sizeof(char));
+      FdManager::SetCachePageDir(cacheDir.c_str());
       return 0;
     }
     if(0 == STR2NCMP(arg, "check_cache_dir_exist")){
