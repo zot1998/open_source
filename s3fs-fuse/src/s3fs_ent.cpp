@@ -35,71 +35,107 @@
 
 
 
-S3Ent::S3Ent(const char *path):m_strPath(rebuild_path(path, false)), 
-                                  m_strPathDir(m_strPath + "/"),
-                                  m_strMatchPath(m_strPath)
+
+Ent::Ent(const char *path):m_strPath(rebuild_path(path, false)), 
+                                 m_strPathDir(m_strPath + "/")
                                   
 {
-    init();
+    m_bExists = false;
+    memset(&m_stAttr, 0, sizeof(m_stAttr));
 }
-S3Ent::S3Ent(const std::string &path):m_strPath(rebuild_path(path.c_str(), false)), 
-                                         m_strPathDir(m_strPath + "/"),
-                                         m_strMatchPath(m_strPath)
+Ent::Ent(const std::string &path):m_strPath(rebuild_path(path.c_str(), false)), 
+                                        m_strPathDir(m_strPath + "/")
 {
-    init();
+    m_bExists = false;
+    memset(&m_stAttr, 0, sizeof(m_stAttr));
+}
+Ent::~Ent()
+{
+    
+}
+int Ent::init(void)
+{    
+    return 0;
+}
+
+
+
+
+
+VfsEnt::VfsEnt(const char *path):Ent(path)
+                                  
+{
+    m_strCachePath.clear();
+}
+VfsEnt::VfsEnt(const std::string &path):Ent(path)
+{
+    m_strCachePath.clear();
+}
+VfsEnt::~VfsEnt()
+{
+    
+}
+
+int VfsEnt::init(void)
+{    
+    int rc = 0;
+    rc = stat(m_strCachePath.c_str(), &m_stAttr);
+    if (0 == rc) {
+        m_bExists = true;
+    } else if (ENOENT != errno) {
+        S3FS_PRN_ERR("%s local stat failed(rc:%d,error:%d)", rc, -errno); 
+        return -errno;
+    }
+    
+    return 0;
+}
+
+int VfsEnt::create(void) 
+{
+    if (S_ISDIR(stbuf->st_mode)) {
+
+    } else {
+
+
+    }
+
+    return 0;
+}
+
+
+
+S3Ent::S3Ent(const char *path):Ent(path),m_strMatchPath(m_strPath)
+                                  
+{
+    m_bEmptyDir = false;
+}
+S3Ent::S3Ent(const std::string &path):Ent(path),m_strMatchPath(m_strPath)                             
+{
+    m_bEmptyDir = false;
 }
 S3Ent::~S3Ent()
 {
     
 }
 int S3Ent::init(void)
-{    
-    int rc = 0;   
-
-    m_bLocalExists  = false;
-    m_bRemoteExists = false;
-    m_eRemoteStatus = REMOTE_INIT;
-    
-    memset(&m_stLocalAttr,  0, sizeof(struct stat));
-    memset(&m_stRemoteAttr, 0, sizeof(struct stat));
-
-    string cache_path;
-    m_strCachePath.clear();
-    FdManager::MakeCachePath(m_strPath.c_str(), m_strCachePath, false, false);
-    
-    if(0 == strcmp(m_strPath.c_str(), "/") || 0 == strcmp(m_strPath.c_str(), ".")){
-        m_stLocalAttr.st_nlink = 1; // see fuse faq
-        m_stLocalAttr.st_mode  = mp_mode;
-        m_stLocalAttr.st_uid   = is_s3fs_uid ? s3fs_uid : mp_uid;
-        m_stLocalAttr.st_gid   = is_s3fs_gid ? s3fs_gid : mp_gid;
-
-        memcpy(&m_stRemoteAttr, &m_stLocalAttr, sizeof(struct stat));
-        m_bLocalExists  = true;
-        m_bRemoteExists = true;
-        m_eRemoteStatus = REMOTE_SUCCESS;
-    } else {        
-        rc = stat(m_strPath.c_str(), &m_stLocalAttr);
-        if (0 == rc) {
-            m_bLocalExists = true;
-        }
-    }
-    
-    return 0;
-}
-
-int S3Ent::initRemote(void)
 {
-    //s3fsGetRemoteAttr(const char* path, struct stat* pstbuf)
-    if (REMOTE_INIT != m_eRemoteStatus) {
-        return;
-    }
-
     int          result = -1;
     headers_t    meta;    
     S3fsCurl     s3fscurl;
     bool         forcedir = false;
 
-    result      = s3fscurl.HeadRequest(m_strPath.c_str(), meta);
+    if(0 == strcmp(m_strPath.c_str(), "/") || 0 == strcmp(m_strPath.c_str(), ".")){
+        m_stAttr.st_nlink = 1; // see fuse faq
+        m_stAttr.st_mode  = mp_mode;
+        m_stAttr.st_uid   = is_s3fs_uid ? s3fs_uid : mp_uid;
+        m_stAttr.st_gid   = is_s3fs_gid ? s3fs_gid : mp_gid;
+
+        m_bExists  = true;
+
+        return 0;
+    } 
+
+    result = s3fscurl.HeadRequest(m_strPath.c_str(), meta);
     s3fscurl.DestroyCurlHandle();
     // if not found target path object, do over checking
     if(0 != result){
@@ -124,32 +160,30 @@ int S3Ent::initRemote(void)
     }
 
     if (0 == result) {
-        convert_header_to_stat(m_strMatchPath.c_str(), meta, &m_stRemoteAttr, forcedir);        
+        convert_header_to_stat(m_strMatchPath.c_str(), meta, &m_stAttr, forcedir);        
         if (forcedir) {
-            m_bRemoteEmpty = false;
+            m_bEmptyDir = false;
         } else {
-            m_bRemoteEmpty = true;
-            if (S_ISDIR(m_stRemoteAttr.st_mode)) {
+            m_bEmptyDir = true;
+            if (S_ISDIR(m_stAttr.st_mode)) {
                 if (-ENOTEMPTY == directory_empty(m_strMatchPath.c_str())){
-                    m_bRemoteEmpty = false;
+                    m_bEmptyDir = false;
                 }
             }
         }
         
-        m_bRemoteExists = true;
+        m_bExists = true;
         
-        m_eRemoteStatus = REMOTE_SUCCESS;
     } else if (-ENOENT == result) {
-        m_bRemoteExists = false;
-        m_bRemoteEmpty  = true;
-        m_eRemoteStatus = REMOTE_SUCCESS;
-    } else {
-        m_eRemoteStatus = REMOTE_EXCEPTION;
-    }
+        m_bExists = false;
+
+        result = 0;
+    } 
     
-    
-    return;
+    return result;
 }
+
+
 
 
 int S3Ent::syncAddToRemote(void)
