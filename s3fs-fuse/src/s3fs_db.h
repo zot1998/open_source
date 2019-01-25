@@ -1,6 +1,6 @@
 
-#ifndef _S3FS_DB_H_
-#define _S3FS_DB_H_
+#ifndef __S3FS_DB_H
+#define __S3FS_DB_H
 
 #include <list>
 #include <map>
@@ -112,6 +112,6 @@ class S3DB
 };
 
 
-#endif // _S3FS_DB_H_
+#endif // __S3FS_DB_H
 
 

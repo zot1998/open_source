@@ -51,21 +51,16 @@ Ent::Ent(const std::string &path):m_strPath(rebuild_path(path.c_str(), false)),
 }
 Ent::~Ent()
 {
-    
+    m_strPath.clear();
+    m_strPathDir.clear();    
 }
-int Ent::init(void)
-{    
-    return 0;
-}
-
 
 
 
 
 VfsEnt::VfsEnt(const char *path):Ent(path)
-                                  
 {
-    m_strCachePath.clear();
+    m_strCachePath.clear();    
 }
 VfsEnt::VfsEnt(const std::string &path):Ent(path)
 {
@@ -73,7 +68,7 @@ VfsEnt::VfsEnt(const std::string &path):Ent(path)
 }
 VfsEnt::~VfsEnt()
 {
-    
+    m_strCachePath.clear();
 }
 
 int VfsEnt::init(void)
@@ -90,18 +85,70 @@ int VfsEnt::init(void)
     return 0;
 }
 
-int VfsEnt::create(void) 
+int VfsEnt::build(void) 
 {
-    if (S_ISDIR(stbuf->st_mode)) {
+    if (isDir()) {
+        int result = 0;
+        result = mkdir(m_strCachePath.c_str(), m_stAttr.st_mode);
+        if (0 != result) {
+            S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", m_strPath.c_str(), m_strPath.st_mode, -errno);
+            return result;
+        }
+
+        //set stat
+        // not opened file yet.
+        struct utimbuf n_mtime;
+        n_mtime.modtime = time;
+        n_mtime.actime  = time;
+        if(-1 == utime(m_strCachePath.c_str(), &n_mtime)){
+            S3FS_PRN_ERR("set file (%s) utime failed. errno(%d)", m_strPath.c_str(), -errno);
+            return -errno;
+        }
 
     } else {
-
-
+        FdEntity *ent = NULL;
+        if(NULL == (ent = FdManager::get()->Open(m_strPath.c_str(), 
+                                                  NULL, 
+                                                  static_cast<ssize_t>(stbuf->st_size), 
+                                                  m_stAttr.st_mtime, 
+                                                  false, 
+                                                  true))){
+            S3FS_PRN_ERR("Could not open file(%s). errno(%d)", m_strPath.c_str(), -errno);
+            
+            return -EIO;
+        }
+        
+        ent->Close();
     }
 
     return 0;
 }
 
+int VfsEnt::remove(void)
+{
+    if (!isExists()) {
+        return -ENOENT;
+    }
+
+    int rc = 0;
+    if (isDir()) {
+        //s3fs_rmdir
+        rc = rmdir(m_strCachePath.c_str());
+        if (0 != result) {
+            S3FS_PRN_ERR("remove local directory(%s) error: %d", m_strPath.c_str(), -errno);
+            return result;
+        }
+    } else {
+        //s3fs_unlink
+        rc = unlink(m_strCachePath.c_str());
+        if (rc) {
+            S3FS_PRN_ERR("remove local file(%s): errno=%d", m_strPath.c_str(), -errno);
+            return -errno;
+        }
+    }
+    
+    return 0;
+}
 
 
 S3Ent::S3Ent(const char *path):Ent(path),m_strMatchPath(m_strPath)
@@ -115,7 +162,7 @@ S3Ent::S3Ent(const std::string &path):Ent(path),m_strMatchPath(m_strPath)
 }
 S3Ent::~S3Ent()
 {
-    
+    m_strMatchPath.clear();
 }
 int S3Ent::init(void)
 {
@@ -183,46 +230,39 @@ int S3Ent::init(void)
     return result;
 }
 
-
-
-
-int S3Ent::syncAddToRemote(void)
+int S3Ent::build(Ent &ent)
 {
-    if (!m_bLocalExists) {
+    if (!ent.isExists()) {
         return -ENOENT;
     }
-
-    if (m_bRemoteExists) {
-        //TODO...
-        if ((S_ISDIR(m_stLocalAttr.st_mode) && (!S_ISDIR(m_stRemoteAttr.st_mode)))
-            || (!S_ISDIR(m_stLocalAttr.st_mode) && (S_ISDIR(m_stRemoteAttr.st_mode))))
-        {
-            //TODO... how ??
-            S3FS_PRN_WARN("%s local mode(dir:%d) is not match remote(dir:%d)", 
-            m_strPath.c_str(), S_ISDIR(m_stLocalAttr.st_mode), S_ISDIR(m_stRemoteAttr.st_mode));
+    if (isExists()) {
+        if (fileType() != ent.fileType()) {
+            //TODO...How??
+            S3FS_PRN_WARN("%s local fileType(0x%x) is not match with remote fileType(0x%x)", 
+            m_strPath.c_str(), ent.fileType(), fileType());
         }
     }
 
     headers_t meta;
-    if (S_ISDIR(m_stLocalAttr.st_mode)) {
+    if (ent.isDir()) {
         meta["Content-Type"]     = string("application/x-directory");
     }
-    meta["x-amz-meta-uid"]   = str(stAttr.st_uid);
-    meta["x-amz-meta-gid"]   = str(stAttr.st_gid);
-    meta["x-amz-meta-mode"]  = str(stAttr.st_mode);
-    meta["x-amz-meta-mtime"] = str(stAttr.st_mtime);
+    meta["x-amz-meta-uid"]   = str(ent.stat().st_uid);
+    meta["x-amz-meta-gid"]   = str(ent.stat().st_gid);
+    meta["x-amz-meta-mode"]  = str(ent.stat().st_mode);
+    meta["x-amz-meta-mtime"] = str(ent.stat().st_mtime);
 
     int rc = 0;
-    if (S_ISDIR(m_stLocalAttr.st_mode)) {
+    if (ent.isDir()) {
         S3fsCurl s3fscurl;
         rc = s3fscurl.PutRequest(m_strPathDir.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
     } else {
         int fd = open(m_strPath.c_str(), O_RDWR);
         if (fd < 0) {
             S3FS_PRN_WARN("failed to open file(%s)", m_strPath.c_str());
-            rc = -EIO;            
+            rc = -EIO;
         } else {        
-            if(m_stLocalAttr.st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
+            if(ent.stat().st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
                 // Additional time is needed for large files
                 time_t backup = 0;
                 if(120 > S3fsCurl::GetReadwriteTimeout()){
@@ -244,91 +284,19 @@ int S3Ent::syncAddToRemote(void)
     return rc;
 }
 
-int  S3Ent::syncDelToRemote(void)
+int S3Ent::remove(void)
 {
+    int rc = 0;
+    if (isDir()) {
+        if (!m_bEmptyDir) {
+            return -ENOTEMPTY;
+        }
 
-
-}
-
-
-
-
-
-//get_local_fent
-int s3fsLocalMkFile(const char* path, struct stat* pstAttr){
-
-}
-
-int s3fsLocalMkDir(const char* path, struct stat* pstAttr){
-    
-}
-
-
-
-int s3fsLocalMk(const char* path, struct stat* pstAttr){
-    if (S_ISDIR(stbuf->st_mode)) {
-        return s3fsLocalMkDir(path, pstAttr);
+        S3fsCurl s3fscurl;
+        rc = s3fscurl.DeleteRequest(m_strPathDir.c_str());
     } else {
-        return s3fsLocalMkFile(path, pstAttr);
-    }
-}
-    string cache_path;
-    FdManager::MakeCachePath(path, cache_path, false, false);
-  
-    if (S_ISREG(stbuf->st_mode)) {
-        FdEntity *ent = NULL;
-        
-        S3FS_PRN_INFO("Make cache file(%s)", path);
-  
-        if(NULL == (ent = FdManager::get()->Open(path, NULL, static_cast<ssize_t>(stbuf->st_size), stbuf->st_mtime, false, true))){
-            S3FS_PRN_ERR("Could not open file(%s). errno(%d)", path, errno);
-            
-            return -EIO;
-        }
-        
-        ent->Close();
-    } else if (S_ISDIR(stbuf->st_mode)) {
-        int result = 0;
-        S3FS_PRN_INFO("Make cache directory(%s)", path);
-
-        result = mkdir(cache_path.c_str(), stbuf->st_mode);
-        if (0 != result) {
-            S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", path, stbuf->st_mode, errno);
-            return result;
-        }
-
-        //set stat
-        // not opened file yet.
-        struct utimbuf n_mtime;
-        n_mtime.modtime = time;
-        n_mtime.actime  = time;
-        if(-1 == utime(cache_path.c_str(), &n_mtime)){
-            S3FS_PRN_ERR("utime failed. errno(%d)", -errno);
-            return -errno;
-        }
-    
-    } else {
-        S3FS_PRN_ERR("Don't support operation(%s, mode:0x%x)", path, stbuf->st_mode);
-        return -EIO;
-    }
-
-   
-    
-    return 0;
-}
-
-int s3fsLocalRmdir(const char* path) {
-    string cache_path;
-    FdManager::MakeCachePath(path, cache_path, false, false);
-    if (0 == cache_path.size()) {
-        return 0;
-    }
-
-    int result = 0;
-    result = rmdir(cache_path.c_str());
-    if (0 != result) {
-        S3FS_PRN_ERR("remove local directory(%s) error: %d", path, -errno);
-        return result;
+        S3fsCurl s3fscurl;
+        rc = s3fscurl.DeleteRequest(m_strMatchPath.c_str());
     }
     
     return 0;
@@ -336,75 +304,7 @@ int s3fsLocalRmdir(const char* path) {
 
 
 
-//s3fs_rmdir
-int s3fsRemoteRmDir(const char* path) {
-    int rc = 0;
 
-    // directory must be empty
-    if(directory_empty(path) != 0){
-        return -ENOTEMPTY;
-    }
-
-    struct stat stbuf = {0};
-    rc = s3fsGetRemoteAttr(path, &stbuf);
-    if (rc) {
-        return rc;
-    }
-
-    if (!S_ISDIR(stbuf.st_mode)) {
-        S3FS_PRN_WARN("remove remote dir(%s), but remote is not dir.", path);
-        return 0;
-    }
-
-    std::string strPath = rebuild_path(path, true);
-
-    S3fsCurl s3fscurl;
-    rc = s3fscurl.DeleteRequest(strPath.c_str());
-    s3fscurl.DestroyCurlHandle();
-
-    return rc;
-}
-
-//s3fs_unlink
-int s3fsRemoteRmFile(const char* path) {
-    int rc = 0;
-
-    struct stat stbuf = {0};
-    rc = s3fsGetRemoteAttr(path, &stbuf);
-    if (rc) {
-        return rc;
-    }
-
-    if (S_ISDIR(stbuf.st_mode)) {
-        S3FS_PRN_WARN("remove remote file(%s), but remote is dir.", path);
-        return 0;
-    }
-
-    std::string strPath = rebuild_path(path, false);
-    S3fsCurl s3fscurl;
-    rc = s3fscurl.DeleteRequest(strPath.c_str());
-
-    return rc;
-}
-int s3fsRemoteRm(const char* path, mode_t mode) {    
-    if (S_ISDIR(mode)) {
-        return s3fsRemoteRmDir(path);
-    } else {
-        return s3fsRemoteRmFile(path);
-    }
-}
-
-
-
-
-
-int s3fsRemoteMk(const char* path, mode_t mode) {
-    if (S_ISDIR(mode)) {
-        return s3fsRemoteMkDir(path);
-    } else {
-        return s3fsRemoteMkFile(path);
-    }
-}
 
 
 

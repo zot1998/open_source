@@ -481,20 +481,16 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   //try to access cache 
   //TODO...
   //场景1:在web端删除一个文件，立即又创建一个同名但内容不一样的文件。
-  string cache_path;
-  FdManager::MakeCachePath(path, cache_path, false, false);
-  result = stat(cache_path.c_str(), pstbuf);
-  if (0 == result) {
-    return 0;
-  } else if (ENOENT == errno) {
-    if (is_sync_getattr) {
-      //sync from oss
-    } else {
-      return -ENOENT;
-    }
+  VfsEnt stVfsEnt(path);
+  stVfsEnt.init();
+  if (stVfsEnt.isExists()) {
+      *pstbuf = stVfsEnt.stat();
   } else {
-    S3FS_PRN_INFO("[path=%s] get stat return %d", result);
-    return result;
+      if (is_sync_getattr) {
+          //sync from oss
+      } else {
+          return -ENOENT;
+      }
   }
 
   // At first, check path
@@ -593,7 +589,8 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     }
   }
 
-  result = s3fsLocalMk(path.c_str(), pstat);
+  stVfsEnt.stat() = *pstat;
+  stVfsEnt.build();
   
   return result;
 }
@@ -862,74 +859,64 @@ static int put_headers(const char* path, headers_t& meta, bool is_copy)
 
 static int s3fs_getattr(const char* path, struct stat* stbuf)
 {
-  int result;
+    int result;
 
-  S3FS_PRN_INFO("[path=%s]", path);
+    S3FS_PRN_INFO("[path=%s]", path);
 
-  // check parent directory attribute.
-  if(0 != (result = check_parent_object_access(path, X_OK))){
-    return result;
-  }
-  if(0 != (result = check_object_access(path, F_OK, stbuf))){
-    return result;
-  }
-  // If has already opened fd, the st_size should be instead.
-  // (See: Issue 241)
-  if(stbuf){
-    FdEntity*   ent;
-
-    if(NULL != (ent = FdManager::get()->ExistOpen(path))){
-      struct stat tmpstbuf;
-      if(ent->GetStats(tmpstbuf)){
-        stbuf->st_size = tmpstbuf.st_size;
-      }
-      FdManager::get()->Close(ent);
+    // check parent directory attribute.
+    if(0 != (result = check_parent_object_access(path, X_OK))){
+        return result;
     }
-    stbuf->st_blksize = 4096;
-    stbuf->st_blocks  = get_blocks(stbuf->st_size);
-  }
-  S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", path, (unsigned int)(stbuf->st_uid), (unsigned int)(stbuf->st_gid), stbuf->st_mode);
-  S3FS_MALLOCTRIM(0);
+    if(0 != (result = check_object_access(path, F_OK, stbuf))){
+        return result;
+    }
 
-  return result;
+    if(stbuf){
+        stbuf->st_blksize = 4096;
+        stbuf->st_blocks  = get_blocks(stbuf->st_size);
+    }
+    S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", path, (unsigned int)(stbuf->st_uid), (unsigned int)(stbuf->st_gid), stbuf->st_mode);
+    S3FS_MALLOCTRIM(0);
+
+    return result;
 }
 
 static int s3fs_readlink(const char* path, char* buf, size_t size)
 {
-  if(!path || !buf || 0 >= size){
-    return 0;
-  }
-  // Open
-  FdEntity*   ent;
-  if(NULL == (ent = get_local_fent(path))){
-    S3FS_PRN_ERR("could not get fent(file=%s)", path);
-    return -EIO;
-  }
-  // Get size
-  size_t readsize;
-  if(!ent->GetSize(readsize)){
-    S3FS_PRN_ERR("could not get file size(file=%s)", path);
-    FdManager::get()->Close(ent);
-    return -EIO;
-  }
-  if(size <= readsize){
-    readsize = size - 1;
-  }
-  // Read
-  ssize_t ressize;
-  if(0 > (ressize = ent->Read(buf, 0, readsize))){
-    S3FS_PRN_ERR("could not read file(file=%s, ressize=%jd)", path, (intmax_t)ressize);
-    FdManager::get()->Close(ent);
-    return static_cast<int>(ressize);
-  }
-  buf[ressize] = '\0';
+    if(!path || !buf || 0 >= size){
+        return 0;
+    }
+    // Open
+    FdEntity*   ent;
+    if(NULL == (ent = get_local_fent(path))){
+        S3FS_PRN_ERR("could not get fent(file=%s)", path);
+        return -EIO;
+    }
+    // Get size
+    size_t readsize;
+    if(!ent->GetSize(readsize)){
+        S3FS_PRN_ERR("could not get file size(file=%s)", path);
+        FdManager::get()->Close(ent);
+        return -EIO;
+    }
+    if(size <= readsize){
+        readsize = size - 1;
+    }
+    // Read
+    ssize_t ressize;
+    if(0 > (ressize = ent->Read(buf, 0, readsize))){
+        S3FS_PRN_ERR("could not read file(file=%s, ressize=%jd)", path, (intmax_t)ressize);
+        FdManager::get()->Close(ent);
+        return static_cast<int>(ressize);
+    }
+    buf[ressize] = '\0';
 
-  // check buf if it has space words.
-  string strTmp = trim(string(buf));
-  strcpy(buf, strTmp.c_str());
+    // check buf if it has space words.
+    string strTmp = trim(string(buf));
+    strcpy(buf, strTmp.c_str());
 
-  FdManager::get()->Close(ent);
-  S3FS_MALLOCTRIM(0);
+    FdManager::get()->Close(ent);
+    S3FS_MALLOCTRIM(0);
 
   return 0;
 }
@@ -998,23 +985,23 @@ static int create_file_object(const char* path, mode_t mode, uid_t uid, gid_t gi
 
 static int s3fs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
-  int       result;
-  struct fuse_context* pcxt;
+    int       result;
+    struct fuse_context* pcxt;
 
-  S3FS_PRN_INFO("[path=%s][mode=%04o][dev=%ju]", path, mode, (uintmax_t)rdev);
+    S3FS_PRN_INFO("[path=%s][mode=%04o][dev=%ju]", path, mode, (uintmax_t)rdev);
 
-  if(NULL == (pcxt = fuse_get_context())){
-    return -EIO;
-  }
+    if(NULL == (pcxt = fuse_get_context())){
+        return -EIO;
+    }
 
-  if(0 != (result = create_file_object(path, mode, pcxt->uid, pcxt->gid))){
-    S3FS_PRN_ERR("could not create object for special file(result=%d)", result);
+    if(0 != (result = create_file_object(path, mode, pcxt->uid, pcxt->gid))){
+        S3FS_PRN_ERR("could not create object for special file(result=%d)", result);
+        return result;
+    }
+    StatCache::getStatCacheData()->DelStat(path);
+    S3FS_MALLOCTRIM(0);
+
     return result;
-  }
-  StatCache::getStatCacheData()->DelStat(path);
-  S3FS_MALLOCTRIM(0);
-
-  return result;
 }
 
 static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
@@ -1078,14 +1065,21 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
   struct stat statbuf = {0};
   statbuf.st_uid = uid;
   statbuf.st_gid = gid;
-  statbuf.st_mode = mode;
+  statbuf.st_mode = mode | S_IFDIR;
   statbuf.st_mtime = time;
   statbuf.st_nlink = 2;
 
   int result = 0;
-  result = s3fsLocalMk(path, &statbuf);
+  VfsEnt stVfsEnt(path);
+  stVfsEnt.init();
+  if (stVfsEnt.isExists()) {
+    return -EEXIST;
+  }
+  stVfsEnt.stat() = statbuf;
+  result = stVfsEnt.build();
   if (0 != result) {
       S3FS_PRN_WARN("make local dir failed(%s, result:%d)", path, result);
+      return result;
   }
 
   headers_t meta;
@@ -1101,31 +1095,31 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
 
 static int s3fs_mkdir(const char* path, mode_t mode)
 {
-  int result;
-  struct fuse_context* pcxt;
+    int result;
+    struct fuse_context* pcxt;
 
-  S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
+    S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
 
-  if(NULL == (pcxt = fuse_get_context())){
-    return -EIO;
-  }
-
-  // check parent directory attribute.
-  if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-    return result;
-  }
-  if(-ENOENT != (result = check_object_access(path, F_OK, NULL))){
-    if(0 == result){
-      result = -EEXIST;
+    if(NULL == (pcxt = fuse_get_context())){
+        return -EIO;
     }
+
+    // check parent directory attribute.
+    if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
+        return result;
+    }
+    if(-ENOENT != (result = check_object_access(path, F_OK, NULL))){
+        if(0 == result){
+            result = -EEXIST;
+        }
+        return result;
+    }
+
+    result = create_directory_object(path, mode, time(NULL), pcxt->uid, pcxt->gid);
+    StatCache::getStatCacheData()->DelStat(path);
+    S3FS_MALLOCTRIM(0);
+
     return result;
-  }
-
-  result = create_directory_object(path, mode, time(NULL), pcxt->uid, pcxt->gid);
-  StatCache::getStatCacheData()->DelStat(path);
-  S3FS_MALLOCTRIM(0);
-
-  return result;
 }
 
 static int s3fs_unlink(const char* path)
@@ -3436,6 +3430,8 @@ static void s3fs_destroy(void*)
   if(is_remove_cache && (!CacheFileStat::DeleteCacheFileStatDirectory() || !FdManager::DeleteCacheDirectory())){
     S3FS_PRN_WARN("Could not remove cache directory.");
   }
+
+  S3RSync::exit();
 }
 
 static int s3fs_access(const char* path, int mask)

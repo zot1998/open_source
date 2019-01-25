@@ -1,9 +1,9 @@
 
-#ifndef S3FS_S3_H_
-#define S3FS_S3_H_
+#ifndef __S3FS_GC_H
+#define __S3FS_GC_H
 
 
 
-#endif // S3FS_S3_H_
+#endif // __S3FS_GC_H
 
 

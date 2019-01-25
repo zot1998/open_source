@@ -1,6 +1,6 @@
 
-#ifndef S3FS_IO_H_
-#define S3FS_IO_H_
+#ifndef __S3FS_ENT_H
+#define __S3FS_ENT_H
 
 #include <sys/stat.h>
 
@@ -12,10 +12,14 @@ class Ent
         Ent(const std::string &path);
         virtual ~Ent();
 
-        virtual int  init(void);
-        virtual bool isDir(void)     { return S_ISDIR(m_stAttr.st_mode);}
-        virtual bool isExists(void) { return m_bExists;}
-        struct stat &stat(void)      { return m_stAttr;}
+        virtual int   init(void);        { return 0;}
+        virtual bool  isDir(void)       { return S_ISDIR(m_stAttr.st_mode);}
+        virtual bool  fileType(void)  { return m_stAttr.st_mode & S_IFMT;}
+        virtual bool  isExists(void)  { return m_bExists;}
+        struct  stat &stat(void)        { return m_stAttr;}
+        virtual int   build(Ent &ent)   { return 0;}
+        virtual int   build(void)       { return 0;}
+        virtual int   remove(void)     { return 0;}
 
     protected:
         bool        m_bExists;
@@ -32,8 +36,9 @@ class VfsEnt:public Ent
         ~VfsEnt();
 
         int init(void);
-
-        int create(void);
+        //int build(Ent &ent);
+        int build(void); //int s3fsLocalMk(const char* path, struct stat* pstAttr);
+        int remove(void);
         
 
     private:
@@ -48,7 +53,9 @@ class S3Ent:public Ent
         S3Ent(const std::string &path);
         ~S3Ent();
 
-        int  init(void);
+        int init(void);
+        int build(Ent &ent);
+        int remove(void);
 
     private:
         std::string m_strMatchPath;
@@ -56,39 +63,6 @@ class S3Ent:public Ent
 
 };
 
-
-
-
-
-
-
-
-
-
-
-
-int s3fsLocalMkFile(const char* path, struct stat* pstAttr);
-int s3fsLocalMkDir(const char* path, struct stat* pstAttr);
-int s3fsLocalMk(const char* path, struct stat* pstAttr);
-
-
-
-
-int s3fsLocalRmdir(const char* path);
-
-int s3fsRemoteRmDir(const char* path);
-int s3fsRemoteRmFile(const char* path);
-int s3fsRemoteRm(const char* path, mode_t mode);
-
-int s3fsRemoteMkFile(const char* path);
-int s3fsRemoteMkDir(const char* path);
-int s3fsRemoteMk(const char* path, mode_t mode);
-
-
-
-
-
-
-#endif // S3FS_IO_H_
+#endif // __S3FS_ENT_H
 
 
