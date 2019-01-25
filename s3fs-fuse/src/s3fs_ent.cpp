@@ -74,6 +74,10 @@ VfsEnt::~VfsEnt()
 int VfsEnt::init(void)
 {    
     int rc = 0;
+    if (0 == m_strPath.size()) {
+        return 0;
+    }
+    
     rc = stat(m_strCachePath.c_str(), &m_stAttr);
     if (0 == rc) {
         m_bExists = true;
@@ -149,6 +153,7 @@ int VfsEnt::remove(void)
     
     return 0;
 }
+
 
 
 S3Ent::S3Ent(const char *path):Ent(path),m_strMatchPath(m_strPath)

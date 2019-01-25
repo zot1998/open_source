@@ -135,7 +135,6 @@ static bool is_ecs                = false;
 static bool is_ibm_iam_auth       = false;
 static bool is_use_xattr          = false;
 static bool create_bucket         = false;
-static bool is_sync_getattr       = false;//获取属性时是否同步请求oss
 
 static int64_t singlepart_copy_limit = FIVE_GB;
 static bool is_specified_endpoint = false;
@@ -205,42 +204,7 @@ static int set_mountpoint_attribute(struct stat& mpst);
 static int set_bucket(const char* arg);
 static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_args* outargs);
 
-// fuse interface functions
-static int s3fs_getattr(const char* path, struct stat* stbuf);
-static int s3fs_readlink(const char* path, char* buf, size_t size);
-static int s3fs_mknod(const char* path, mode_t mode, dev_t rdev);
-static int s3fs_mkdir(const char* path, mode_t mode);
-static int s3fs_unlink(const char* path);
-static int s3fs_rmdir(const char* path);
-static int s3fs_symlink(const char* from, const char* to);
-static int s3fs_rename(const char* from, const char* to);
-static int s3fs_link(const char* from, const char* to);
-static int s3fs_chmod(const char* path, mode_t mode);
-static int s3fs_chmod_nocopy(const char* path, mode_t mode);
-static int s3fs_chown(const char* path, uid_t uid, gid_t gid);
-static int s3fs_chown_nocopy(const char* path, uid_t uid, gid_t gid);
-static int s3fs_utimens(const char* path, const struct timespec ts[2]);
-static int s3fs_utimens_nocopy(const char* path, const struct timespec ts[2]);
-static int s3fs_truncate(const char* path, off_t size);
-static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi);
-static int s3fs_open(const char* path, struct fuse_file_info* fi);
-static int s3fs_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi);
-static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi);
-static int s3fs_statfs(const char* path, struct statvfs* stbuf);
-static int s3fs_flush(const char* path, struct fuse_file_info* fi);
-static int s3fs_fsync(const char* path, int datasync, struct fuse_file_info* fi);
-static int s3fs_release(const char* path, struct fuse_file_info* fi);
-static int s3fs_opendir(const char* path, struct fuse_file_info* fi);
-static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi);
-static int s3fs_access(const char* path, int mask);
-static void* s3fs_init(struct fuse_conn_info* conn);
-static void s3fs_destroy(void*);
 
-static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags);
-static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size);
-
-static int s3fs_listxattr(const char* path, char* list, size_t size);
-static int s3fs_removexattr(const char* path, const char* name);
 
 //-------------------------------------------------------------------
 // Functions
@@ -439,12 +403,6 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   int          result = -1;
   struct stat  tmpstbuf;
   struct stat* pstat = pstbuf ? pstbuf : &tmpstbuf;
-  headers_t    tmpHead;
-  headers_t*   pheader = pmeta ? pmeta : &tmpHead;
-  string       strpath;
-  S3fsCurl     s3fscurl;
-  bool         forcedir = false;
-  string::size_type Pos;
 
   S3FS_PRN_DBG("[path=%s]", path);
 
@@ -461,136 +419,13 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
     return 0;
   }
 
-  // Check cache.
-  pisforce    = (NULL != pisforce ? pisforce : &forcedir);
-  (*pisforce) = false;
-  strpath     = path;
-  if(support_compat_dir && overcheck && string::npos != (Pos = strpath.find("_$folder$", 0))){
-    strpath = strpath.substr(0, Pos);
-    strpath += "/";
-  }
-  if(StatCache::getStatCacheData()->GetStat(strpath, pstat, pheader, overcheck, pisforce)){
-    StatCache::getStatCacheData()->ChangeNoTruncateFlag(strpath, add_no_truncate_cache);
-    return 0;
-  }
-  if(StatCache::getStatCacheData()->IsNoObjectCache(strpath)){
-    // there is the path in the cache for no object, it is no object.
-    return -ENOENT;
-  }
-
-  //try to access cache 
-  //TODO...
-  //场景1:在web端删除一个文件，立即又创建一个同名但内容不一样的文件。
   VfsEnt stVfsEnt(path);
-  stVfsEnt.init();
+  result = stVfsEnt.init();
   if (stVfsEnt.isExists()) {
       *pstbuf = stVfsEnt.stat();
   } else {
-      if (is_sync_getattr) {
-          //sync from oss
-      } else {
-          return -ENOENT;
-      }
+      result = -ENOENT;
   }
-
-  // At first, check path
-  strpath     = path;
-  result      = s3fscurl.HeadRequest(strpath.c_str(), (*pheader));
-  s3fscurl.DestroyCurlHandle();
-
-  // if not found target path object, do over checking
-  if(0 != result){
-    if(overcheck){
-      // when support_compat_dir is disabled, strpath maybe have "_$folder$".
-      if('/' != strpath[strpath.length() - 1] && string::npos == strpath.find("_$folder$", 0)){
-        // now path is "object", do check "object/" for over checking
-        strpath    += "/";
-        result      = s3fscurl.HeadRequest(strpath.c_str(), (*pheader));
-        s3fscurl.DestroyCurlHandle();
-      }
-      if(support_compat_dir && 0 != result){
-        // now path is "object/", do check "object_$folder$" for over checking
-        strpath     = strpath.substr(0, strpath.length() - 1);
-        strpath    += "_$folder$";
-        result      = s3fscurl.HeadRequest(strpath.c_str(), (*pheader));
-        s3fscurl.DestroyCurlHandle();
-
-        if(0 != result){
-          // cut "_$folder$" for over checking "no dir object" after here
-          if(string::npos != (Pos = strpath.find("_$folder$", 0))){
-            strpath  = strpath.substr(0, Pos);
-          }
-        }
-      }
-    }
-    if(support_compat_dir && 0 != result && string::npos == strpath.find("_$folder$", 0)){
-      // now path is "object" or "object/", do check "no dir object" which is not object but has only children.
-      if('/' == strpath[strpath.length() - 1]){
-        strpath = strpath.substr(0, strpath.length() - 1);
-      }
-      if(-ENOTEMPTY == directory_empty(strpath.c_str())){
-        // found "no dir object".
-        strpath  += "/";
-        *pisforce = true;
-        result    = 0;
-      }
-    }
-  }else{
-    if(support_compat_dir && '/' != strpath[strpath.length() - 1] && string::npos == strpath.find("_$folder$", 0) && is_need_check_obj_detail(*pheader)){
-      // check a case of that "object" does not have attribute and "object" is possible to be directory.
-      if(-ENOTEMPTY == directory_empty(strpath.c_str())){
-        // found "no dir object".
-        strpath  += "/";
-        *pisforce = true;
-        result    = 0;
-      }
-    }
-  }
-
-  if(0 != result){
-    // finally, "path" object did not find. Add no object cache.
-    strpath = path;  // reset original
-    StatCache::getStatCacheData()->AddNoObjectCache(strpath);
-    return result;
-  }
-
-  // if path has "_$folder$", need to cut it.
-  if(string::npos != (Pos = strpath.find("_$folder$", 0))){
-    strpath = strpath.substr(0, Pos);
-    strpath += "/";
-  }
-
-  // Set into cache
-  //
-  // [NOTE]
-  // When add_no_truncate_cache is true, the stats is always cached.
-  // This cached stats is only removed by DelStat().
-  // This is necessary for the case to access the attribute of opened file.
-  // (ex. getxattr() is called while writing to the opened file.)
-  //
-  if(add_no_truncate_cache || 0 != StatCache::getStatCacheData()->GetCacheSize()){
-    // add into stat cache
-    if(!StatCache::getStatCacheData()->AddStat(strpath, (*pheader), forcedir, add_no_truncate_cache)){
-      S3FS_PRN_ERR("failed adding stat cache [path=%s]", strpath.c_str());
-      return -ENOENT;
-    }
-    if(!StatCache::getStatCacheData()->GetStat(strpath, pstat, pheader, overcheck, pisforce)){
-      // There is not in cache.(why?) -> retry to convert.
-      if(!convert_header_to_stat(strpath.c_str(), (*pheader), pstat, forcedir)){
-        S3FS_PRN_ERR("failed convert headers to stat[path=%s]", strpath.c_str());
-        return -ENOENT;
-      }
-    }
-  }else{
-    // cache size is Zero -> only convert.
-    if(!convert_header_to_stat(strpath.c_str(), (*pheader), pstat, forcedir)){
-      S3FS_PRN_ERR("failed convert headers to stat[path=%s]", strpath.c_str());
-      return -ENOENT;
-    }
-  }
-
-  stVfsEnt.stat() = *pstat;
-  stVfsEnt.build();
   
   return result;
 }
@@ -857,70 +692,6 @@ static int put_headers(const char* path, headers_t& meta, bool is_copy)
   return 0;
 }
 
-static int s3fs_getattr(const char* path, struct stat* stbuf)
-{
-    int result;
-
-    S3FS_PRN_INFO("[path=%s]", path);
-
-    // check parent directory attribute.
-    if(0 != (result = check_parent_object_access(path, X_OK))){
-        return result;
-    }
-    if(0 != (result = check_object_access(path, F_OK, stbuf))){
-        return result;
-    }
-
-    if(stbuf){
-        stbuf->st_blksize = 4096;
-        stbuf->st_blocks  = get_blocks(stbuf->st_size);
-    }
-    S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", path, (unsigned int)(stbuf->st_uid), (unsigned int)(stbuf->st_gid), stbuf->st_mode);
-    S3FS_MALLOCTRIM(0);
-
-    return result;
-}
-
-static int s3fs_readlink(const char* path, char* buf, size_t size)
-{
-    if(!path || !buf || 0 >= size){
-        return 0;
-    }
-    // Open
-    FdEntity*   ent;
-    if(NULL == (ent = get_local_fent(path))){
-        S3FS_PRN_ERR("could not get fent(file=%s)", path);
-        return -EIO;
-    }
-    // Get size
-    size_t readsize;
-    if(!ent->GetSize(readsize)){
-        S3FS_PRN_ERR("could not get file size(file=%s)", path);
-        FdManager::get()->Close(ent);
-        return -EIO;
-    }
-    if(size <= readsize){
-        readsize = size - 1;
-    }
-    // Read
-    ssize_t ressize;
-    if(0 > (ressize = ent->Read(buf, 0, readsize))){
-        S3FS_PRN_ERR("could not read file(file=%s, ressize=%jd)", path, (intmax_t)ressize);
-        FdManager::get()->Close(ent);
-        return static_cast<int>(ressize);
-    }
-    buf[ressize] = '\0';
-
-    // check buf if it has space words.
-    string strTmp = trim(string(buf));
-    strcpy(buf, strTmp.c_str());
-
-    FdManager::get()->Close(ent);
-    S3FS_MALLOCTRIM(0);
-
-  return 0;
-}
-
 static int do_create_bucket(void)
 {
   S3FS_PRN_INFO2("/");
@@ -983,26 +754,6 @@ static int create_file_object(const char* path, mode_t mode, uid_t uid, gid_t gi
   return s3fscurl.PutRequest(path, meta, -1);    // fd=-1 means for creating zero byte object.
 }
 
-static int s3fs_mknod(const char *path, mode_t mode, dev_t rdev)
-{
-    int       result;
-    struct fuse_context* pcxt;
-
-    S3FS_PRN_INFO("[path=%s][mode=%04o][dev=%ju]", path, mode, (uintmax_t)rdev);
-
-    if(NULL == (pcxt = fuse_get_context())){
-        return -EIO;
-    }
-
-    if(0 != (result = create_file_object(path, mode, pcxt->uid, pcxt->gid))){
-        S3FS_PRN_ERR("could not create object for special file(result=%d)", result);
-        return result;
-    }
-    StatCache::getStatCacheData()->DelStat(path);
-    S3FS_MALLOCTRIM(0);
-
-    return result;
-}
 
 static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
 {
@@ -1028,23 +779,17 @@ static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi)
     return result;
   }
 
-  if(-1 == (fd = open(cachepath.c_str(), O_CREAT|O_RDWR|O_TRUNC, 0600))){
-        S3FS_PRN_ERR("failed to open file(%s). errno(%d)", cachepath.c_str(), errno);
-        return (0 == errno ? -EIO : -errno);
-      }
-  StatCache::getStatCacheData()->DelStat(path);
 
   FdEntity*   ent;
   headers_t   meta;
   get_object_attribute(path, NULL, &meta, true, NULL, true);    // no truncate cache
   if(NULL == (ent = FdManager::get()->Open(path, &meta, 0, -1, false, true))){
-    StatCache::getStatCacheData()->DelStat(path);
     return -EIO;
   }
   fi->fh = ent->GetFd();
   S3FS_MALLOCTRIM(0);
 
-  S3DB_INFO_S record(rebuild_path(path, false), S3DB_OP_ADD, );
+  S3DB_INFO_S record(rebuild_path(path, false), S3DB_OP_ADD, mode);
   S3DB::Instance().insertDB(record);
 
   return 0;
@@ -1075,70 +820,16 @@ static int create_directory_object(const char* path, mode_t mode, time_t time, u
   if (stVfsEnt.isExists()) {
     return -EEXIST;
   }
+  
   stVfsEnt.stat() = statbuf;
   result = stVfsEnt.build();
-  if (0 != result) {
-      S3FS_PRN_WARN("make local dir failed(%s, result:%d)", path, result);
-      return result;
-  }
-
-  headers_t meta;
-  meta["Content-Type"]     = string("application/x-directory");
-  meta["x-amz-meta-uid"]   = str(uid);
-  meta["x-amz-meta-gid"]   = str(gid);
-  meta["x-amz-meta-mode"]  = str(mode);
-  meta["x-amz-meta-mtime"] = str(time);
-
-  S3fsCurl s3fscurl;
-  return s3fscurl.PutRequest(tpath.c_str(), meta, -1);    // fd=-1 means for creating zero byte object.
-}
-
-static int s3fs_mkdir(const char* path, mode_t mode)
-{
-    int result;
-    struct fuse_context* pcxt;
-
-    S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
-
-    if(NULL == (pcxt = fuse_get_context())){
-        return -EIO;
-    }
-
-    // check parent directory attribute.
-    if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-        return result;
-    }
-    if(-ENOENT != (result = check_object_access(path, F_OK, NULL))){
-        if(0 == result){
-            result = -EEXIST;
-        }
-        return result;
-    }
-
-    result = create_directory_object(path, mode, time(NULL), pcxt->uid, pcxt->gid);
-    StatCache::getStatCacheData()->DelStat(path);
-    S3FS_MALLOCTRIM(0);
-
-    return result;
-}
-
-static int s3fs_unlink(const char* path)
-{
-  int result;
-
-  S3FS_PRN_INFO("[path=%s]", path);
-
-  if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-    return result;
-  }
-  S3fsCurl s3fscurl;
-  result = s3fscurl.DeleteRequest(path);
-  FdManager::DeleteCacheFile(path);
-  StatCache::getStatCacheData()->DelStat(path);
-  S3FS_MALLOCTRIM(0);
-
+   
   return result;
 }
+
+
+
+
 
 static int directory_empty(const char* path)
 {
@@ -1153,6 +844,31 @@ static int directory_empty(const char* path)
     return -ENOTEMPTY;
   }
   return 0;
+}
+static int s3fs_getattr(const char* path, struct stat* stbuf)
+{
+    S3fsOper oper(path);
+    return oper.getattr(stbuf);
+}
+static int s3fs_readlink(const char* path, char* buf, size_t size)
+{
+    S3fsOper oper(path);
+    return oper.readlink(buf, size);
+}
+static int s3fs_mknod(const char* path, mode_t mode, dev_t rdev)
+{
+    S3fsOper oper(path);
+    return oper.mknod(mode, rdev);
+}
+static int s3fs_mkdir(const char* path, mode_t mode)
+{
+    S3fsOper oper(path);
+    return oper.mkdir(mode);
+}
+static int s3fs_unlink(const char* path)
+{
+    S3fsOper oper(path);
+    return oper.unlink();
 }
 
 static int s3fs_rmdir(const char* path)
@@ -4755,10 +4471,6 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
     }
     if(0 == strcmp(arg, "createbucket")){
       create_bucket = true;
-      return 0;
-    }
-    if (0 == strcmp(arg, "sync_getattr")) {
-      is_sync_getattr = true;        
       return 0;
     }
     if(0 == STR2NCMP(arg, "endpoint=")){
