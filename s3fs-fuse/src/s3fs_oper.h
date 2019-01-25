@@ -19,8 +19,11 @@ class S3fsOper
         int mkdir(mode_t mode);
         int unlink(const char* path);
     private:
-        VfsEnt m_DstEnt;
-        VfsEnt m_SrcEnt;
+        int checkaccess(VfsEnt &ent, int mask);
+        
+    private:
+        VfsEnt m_dstEnt;
+        VfsEnt m_srcEnt;
 };
 
 

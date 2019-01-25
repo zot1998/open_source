@@ -20,6 +20,7 @@ class Ent
         virtual int   build(Ent &ent)   { return 0;}
         virtual int   build(void)       { return 0;}
         virtual int   remove(void)     { return 0;}
+        virtual char *path(void)        { return m_strPath.c_str();}
 
     protected:
         bool        m_bExists;
@@ -41,9 +42,11 @@ class VfsEnt:public Ent
         int remove(void);
         int open(int flags, mode_t mode);
         int close(int fd);
+        int errno(void) { return m_errno; }
 
     private:
         std::string m_strCachePath;
+        int         m_errno;
 
 };
 
@@ -60,7 +63,7 @@ class S3Ent:public Ent
 
     private:
         std::string m_strMatchPath;
-        bool        m_bEmptyDir;
+        bool        m_bEmptyDir;        
 
 };
 

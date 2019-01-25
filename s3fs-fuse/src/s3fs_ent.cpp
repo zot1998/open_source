@@ -79,6 +79,8 @@ int VfsEnt::init(void)
     }
     
     rc = stat(m_strCachePath.c_str(), &m_stAttr);
+    m_errno = errno;
+    
     if (0 == rc) {
         m_bExists = true;
     } else if (ENOENT != errno) {
@@ -94,6 +96,7 @@ int VfsEnt::build(void)
     if (isDir()) {
         int result = 0;
         result = mkdir(m_strCachePath.c_str(), m_stAttr.st_mode);
+        m_errno = errno;
         if (0 != result) {
             S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", m_strPath.c_str(), m_strPath.st_mode, -errno);
             return result;
