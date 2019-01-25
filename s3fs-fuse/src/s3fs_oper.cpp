@@ -146,22 +146,97 @@ int S3fsOper::mkdir(mode_t mode)
     return result;
 }
 
-
-int S3fsOper::unlink(const char* path)
+int S3fsOper::rmdir(void)
 {
-  int result;
+    int result;
+    
+    if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
+        return result;
+    }
 
-  S3FS_PRN_INFO("[path=%s]", path);
+    if (!m_dstEnt.isExists()) {
+        return -ENOENT;
+    }
 
-  if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
+    
+    result = m_dstEnt.remove();
+    if (0 == result) {
+        S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.stat().st_mode);
+        S3DB::Instance().insertDB(record);
+    }
+
     return result;
-  }
-
-  //TODO.
-
-  return result;
 }
 
+
+
+int S3fsOper::unlink(void)
+{
+    int result;
+
+    if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
+        return result;
+    }
+    
+    result = m_dstEnt.remove();
+    if (0 == result) {
+        S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.stat().st_mode);
+        S3DB::Instance().insertDB(record);
+    }
+
+    return result;
+}
+
+int S3fsOper::symlink(void)
+{
+    int result;
+    struct fuse_context* pcxt;
+    
+    if(NULL == (pcxt = fuse_get_context())){
+        return -EIO;
+    }
+    if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
+        return result;
+    }
+    if(-ENOENT != (result = checkaccess(m_dstEnt, F_OK))){
+        if(0 == result){
+            result = -EEXIST;
+        }
+        return result;
+    }
+
+    headers_t headers;
+    headers["Content-Type"]     = string("application/octet-stream"); // Static
+    headers["x-amz-meta-mode"]  = str(S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO);
+    headers["x-amz-meta-mtime"] = str(time(NULL));
+    headers["x-amz-meta-uid"]   = str(pcxt->uid);
+    headers["x-amz-meta-gid"]   = str(pcxt->gid);
+
+    // open tmpfile
+    FdEntity* ent;
+    if(NULL == (ent = FdManager::get()->Open(to, &headers, 0, -1, true, true))){
+        S3FS_PRN_ERR("could not open tmpfile(errno=%d)", errno);
+        return -errno;
+    }
+    // write(without space words)
+    string  strFrom   = trim(string(from));
+    ssize_t from_size = static_cast<ssize_t>(strFrom.length());
+    if(from_size != ent->Write(strFrom.c_str(), 0, from_size)){
+        S3FS_PRN_ERR("could not write tmpfile(errno=%d)", errno);
+        FdManager::get()->Close(ent);
+        return -errno;
+    }
+    // upload
+    if(0 != (result = ent->Flush(true))){
+        S3FS_PRN_WARN("could not upload tmpfile(result=%d)", result);
+    }
+    FdManager::get()->Close(ent);
+
+    StatCache::getStatCacheData()->DelStat(to);
+    S3FS_MALLOCTRIM(0);
+
+    return result;
+}
 
 
 

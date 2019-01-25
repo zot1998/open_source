@@ -17,7 +17,9 @@ class S3fsOper
         int readlink(char* buf, size_t size);
         int mknod(mode_t mode, dev_t rdev);
         int mkdir(mode_t mode);
-        int unlink(const char* path);
+        int unlink(void);
+        int rmdir(void);
+        int symlink(void);
     private:
         int checkaccess(VfsEnt &ent, int mask);
         
@@ -32,8 +34,8 @@ class S3fsOper
 
 
 
-int s3fs_rmdir(const char* path);
-int s3fs_symlink(const char* from, const char* to);
+
+
 int s3fs_rename(const char* from, const char* to);
 int s3fs_link(const char* from, const char* to);
 int s3fs_chmod(const char* path, mode_t mode);

@@ -873,84 +873,17 @@ static int s3fs_unlink(const char* path)
 
 static int s3fs_rmdir(const char* path)
 {
-  int result;
-  string strpath;
-  struct stat stbuf;
-
-  S3FS_PRN_INFO("[path=%s]", path);
-
-  if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-    return result;
-  }
-
-  // directory must be empty
-  if(directory_empty(path) != 0){
-    return -ENOTEMPTY;
-  }
-
-  result = s3fsLocalRmdir(path);
-  if (result) {
-    return result;
-  }
-  
-  S3DB_INFO_S record(rebuild_path(path), S3DB_OP_DEL, (mode_t)S_IFDIR);
-  S3DB::Instance().insertDB(record);
-
-  return result;
+    S3fsOper oper(path);
+    return oper.rmdir();
 }
+
 
 static int s3fs_symlink(const char* from, const char* to)
 {
-  int result;
-  struct fuse_context* pcxt;
-
-  S3FS_PRN_INFO("[from=%s][to=%s]", from, to);
-
-  if(NULL == (pcxt = fuse_get_context())){
-    return -EIO;
-  }
-  if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
-    return result;
-  }
-  if(-ENOENT != (result = check_object_access(to, F_OK, NULL))){
-    if(0 == result){
-      result = -EEXIST;
-    }
-    return result;
-  }
-
-  headers_t headers;
-  headers["Content-Type"]     = string("application/octet-stream"); // Static
-  headers["x-amz-meta-mode"]  = str(S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO);
-  headers["x-amz-meta-mtime"] = str(time(NULL));
-  headers["x-amz-meta-uid"]   = str(pcxt->uid);
-  headers["x-amz-meta-gid"]   = str(pcxt->gid);
-
-  // open tmpfile
-  FdEntity* ent;
-  if(NULL == (ent = FdManager::get()->Open(to, &headers, 0, -1, true, true))){
-    S3FS_PRN_ERR("could not open tmpfile(errno=%d)", errno);
-    return -errno;
-  }
-  // write(without space words)
-  string  strFrom   = trim(string(from));
-  ssize_t from_size = static_cast<ssize_t>(strFrom.length());
-  if(from_size != ent->Write(strFrom.c_str(), 0, from_size)){
-    S3FS_PRN_ERR("could not write tmpfile(errno=%d)", errno);
-    FdManager::get()->Close(ent);
-    return -errno;
-  }
-  // upload
-  if(0 != (result = ent->Flush(true))){
-    S3FS_PRN_WARN("could not upload tmpfile(result=%d)", result);
-  }
-  FdManager::get()->Close(ent);
-
-  StatCache::getStatCacheData()->DelStat(to);
-  S3FS_MALLOCTRIM(0);
-
-  return result;
+    S3fsOper oper(to, from);
+    return oper.symlink();
 }
+
 
 static int rename_object(const char* from, const char* to)
 {
