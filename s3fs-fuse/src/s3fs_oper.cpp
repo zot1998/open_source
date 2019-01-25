@@ -214,7 +214,7 @@ int S3fsOper::symlink(void)
 
     // open tmpfile
     FdEntity* ent;
-    if(NULL == (ent = FdManager::get()->Open(to, &headers, 0, -1, true, true))){
+    if(NULL == (ent = FdManager::get()->Open(m_dstEnt.path(), &headers, 0, -1, true, true))){
         S3FS_PRN_ERR("could not open tmpfile(errno=%d)", errno);
         return -errno;
     }
