@@ -55,8 +55,11 @@
 #include "s3fs_rsync.h"
 
 #include "s3fs_oper.h"
-
+#include "monitor.h"
 using namespace std;
+monitor monitor::m_instance;
+pthread_t  monitor::m_ThreadId;
+bool    monitor::m_bRunFlag = true;
 
 //-------------------------------------------------------------------
 // Define
@@ -135,7 +138,7 @@ static bool is_ecs                = false;
 static bool is_ibm_iam_auth       = false;
 static bool is_use_xattr          = false;
 static bool create_bucket         = false;
-
+static bool check_bucket          = true;
 static int64_t singlepart_copy_limit = FIVE_GB;
 static bool is_specified_endpoint = false;
 static int s3fs_init_deferred_exit_status = 0;
@@ -1263,13 +1266,6 @@ static void s3fs_exit_fuseloop(int exit_status) {
 
 static void* s3fs_init(struct fuse_conn_info* conn)
 {
-  S3FS_PRN_INIT_INFO("init v%s(commit:%s) with %s", VERSION, COMMIT_HASH_VAL, s3fs_crypt_lib_name());
-
-  // cache(remove cache dirs at first)
-  if(is_remove_cache && (!CacheFileStat::DeleteCacheFileStatDirectory() || !FdManager::DeleteCacheDirectory())){
-    S3FS_PRN_DBG("Could not initialize cache directory.");
-  }
-
   // check loading IAM role name
   if(load_iamrole){
     // load IAM role name from http://169.254.169.254/latest/meta-data/iam/security-credentials
@@ -1282,31 +1278,13 @@ static void* s3fs_init(struct fuse_conn_info* conn)
     }
     S3FS_PRN_INFO("loaded IAM role name = %s", S3fsCurl::GetIAMRole());
   }
-
-  if (create_bucket){
-    int result = do_create_bucket();
-    if(result != 0){
-      s3fs_exit_fuseloop(result);
-      return NULL;
-    }
-  }
-
-  // Check Bucket
-  {
-    int result;
-    if(EXIT_SUCCESS != (result = s3fs_check_service())){
-      s3fs_exit_fuseloop(result);
-      return NULL;
-    }
-  }
-
   // Investigate system capabilities
   #ifndef __APPLE__
   if((unsigned int)conn->capable & FUSE_CAP_ATOMIC_O_TRUNC){
      conn->want |= FUSE_CAP_ATOMIC_O_TRUNC;
   }
   #endif
-
+  monitor::instance().run();
   if((unsigned int)conn->capable & FUSE_CAP_BIG_WRITES){
      conn->want |= FUSE_CAP_BIG_WRITES;
   }
@@ -1629,13 +1607,6 @@ static int s3fs_check_service(void)
         // not specified endpoint, so try to connect to expected region.
         S3FS_PRN_CRIT("Could not connect wrong region %s, so retry to connect region %s.", endpoint.c_str(), expectregion.c_str());
         endpoint = expectregion;
-        if(S3fsCurl::IsSignatureV4()){
-            if(host == "http://s3.amazonaws.com"){
-                host = "http://s3-" + endpoint + ".amazonaws.com";
-            }else if(host == "https://s3.amazonaws.com"){
-                host = "https://s3-" + endpoint + ".amazonaws.com";
-            }
-        }
 
         // retry to check with new endpoint
         s3fscurl.DestroyCurlHandle();
@@ -2250,6 +2221,10 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
     if(0 == strcmp(arg, "del_cache")){
       is_remove_cache = true;
       return 0;
+    }
+    if (0 == strcmp(arg, "no_check_bucket")) {
+        check_bucket = false;
+        return 0;
     }
     if(0 == STR2NCMP(arg, "multireq_max=")){
       long maxreq = static_cast<long>(s3fs_strtoofft(strchr(arg, '=') + sizeof(char)));
@@ -2991,6 +2966,32 @@ int main(int argc, char* argv[])
     s3fs_destroy_global_ssl();
     exit(EXIT_FAILURE);
   }
+  
+  S3FS_PRN_INIT_INFO("init v%s(commit:%s) with %s", VERSION, COMMIT_HASH_VAL, s3fs_crypt_lib_name());
+
+  if(is_remove_cache && (!CacheFileStat::DeleteCacheFileStatDirectory() || !FdManager::DeleteCacheDirectory())){
+    S3FS_PRN_DBG("Could not initialize cache directory.");
+  }
+
+  if (create_bucket) {
+    int result = do_create_bucket();
+    if (result) {
+        S3FS_PRN_DBG("do_create_bucket failed");
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        exit(EXIT_FAILURE);
+    }
+  }
+
+  if (check_bucket) {
+        // Check Bucket
+    if (EXIT_SUCCESS != s3fs_check_service()) {
+        S3FS_PRN_DBG("s3fs_check_service failed");
+        S3fsCurl::DestroyS3fsCurl();
+        s3fs_destroy_global_ssl();
+        exit(EXIT_FAILURE);
+    }
+  }
 
   s3fs_oper.getattr   = s3fs_getattr;
   s3fs_oper.readlink  = s3fs_readlink;
@@ -3040,10 +3041,13 @@ int main(int argc, char* argv[])
     exit(EXIT_FAILURE);
   }
 
+  monitor::instance().bucket(bucket);
+  
   // now passing things off to fuse, fuse will finish evaluating the command line args
   fuse_res = fuse_main(custom_args.argc, custom_args.argv, &s3fs_oper, NULL);
   fuse_opt_free_args(&custom_args);
 
+  monitor::instance().exit();
   // Destroy curl
   if(!S3fsCurl::DestroyS3fsCurl()){
     S3FS_PRN_WARN("Could not release curl library.");

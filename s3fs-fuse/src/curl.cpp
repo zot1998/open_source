@@ -50,6 +50,7 @@
 #include "s3fs_util.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
+#include "monitor.h"
 
 using namespace std;
 
@@ -627,14 +628,7 @@ bool S3fsCurl::InitMimeType(const char* MimeFile)
 void S3fsCurl::InitUserAgent(void)
 {
   if(S3fsCurl::userAgent.empty()){
-    S3fsCurl::userAgent =  "s3fs/";
-    S3fsCurl::userAgent += VERSION;
-    S3fsCurl::userAgent += " (commit hash ";
-    S3fsCurl::userAgent += COMMIT_HASH_VAL;
-    S3fsCurl::userAgent += "; ";
-    S3fsCurl::userAgent += s3fs_crypt_lib_name();
-    S3fsCurl::userAgent += ")";
-    S3fsCurl::userAgent += instance_name;
+    S3fsCurl::userAgent  = "Unicloud storage gateway 1.0";
   }
 }
 
@@ -2048,7 +2042,9 @@ int S3fsCurl::RequestPerform(void)
   // 1 attempt + retries...
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
     // Requests
+    HTTP_ENTER;
     CURLcode curlCode = curl_easy_perform(hCurl);
+    HTTP_EXIT(curlCode);
 
     // Check result
     switch(curlCode){
@@ -3071,11 +3067,19 @@ int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, ssize_t s
   return result;
 }
 
-int S3fsCurl::CheckBucket(void)
+int S3fsCurl::CheckBucket(int timeout)
 {
+  int  old_retries = S3fsCurl::retries;
+  long old_connecttimeout = S3fsCurl::connect_timeout;
+    
   S3FS_PRN_INFO3("check a bucket.");
 
+  S3fsCurl::retries = 2;
+  S3fsCurl::connect_timeout = 10;
+  
   if(!CreateCurlHandle(true)){
+    S3fsCurl::retries         = old_retries;
+    S3fsCurl::connect_timeout = old_connecttimeout;
     return -1;
   }
   string resource;
@@ -3097,9 +3101,15 @@ int S3fsCurl::CheckBucket(void)
   curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, (void*)bodydata);
   curl_easy_setopt(hCurl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
   curl_easy_setopt(hCurl, CURLOPT_HTTPHEADER, requestHeaders);
+  //add timeout avoid wait too long time
+  curl_easy_setopt(hCurl, CURLOPT_TIMEOUT, timeout);
+  
   S3fsCurl::AddUserAgent(hCurl);        // put User-Agent
 
   int result = RequestPerform();
+  S3fsCurl::retries         = old_retries;
+  S3fsCurl::connect_timeout = old_connecttimeout;
+    
   if (result != 0) {
     S3FS_PRN_ERR("Check bucket failed, S3 response: %s", (bodydata ? bodydata->str() : ""));
   }

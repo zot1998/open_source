@@ -1865,6 +1865,7 @@ int FdManager::DeleteCacheFile(const char* path)
   return result;
 }
 
+//if enable cache_dir :    cache_path =  /cache_dir/bucketname/path...   
 bool FdManager::MakeCachePath(const char* path, string& cache_path, bool is_create_dir, bool is_mirror_path)
 {
   if(0 == FdManager::cache_dir.size()){

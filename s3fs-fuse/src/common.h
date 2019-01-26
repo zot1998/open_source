@@ -117,11 +117,11 @@ enum s3fs_log_level{
 #define S3FS_PRN_ERR(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_ERR,  fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_WARN(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_WARN, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_DBG(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_DBG,  fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_INFO(fmt, ...)   S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 0, fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_INFO0(fmt, ...)  S3FS_LOG_INFO(fmt, __VA_ARGS__)
-#define S3FS_PRN_INFO1(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 1, fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_INFO2(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 2, fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_INFO3(fmt, ...)  S3FS_LOW_LOGPRN2(S3FS_LOG_INFO, 3, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_INFO(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_INFO0(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_INFO1(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_INFO2(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_INFO3(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_CURL(fmt, ...)   S3FS_LOW_LOGPRN2(S3FS_LOG_CRIT, 0, fmt, ##__VA_ARGS__, "")
 
 //

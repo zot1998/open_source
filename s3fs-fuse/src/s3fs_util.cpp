@@ -797,6 +797,9 @@ mode_t get_mode(headers_t& meta, const char* path, bool checkdir, bool forcedir)
       mode = get_mode((*iter).second.c_str());
       isS3sync = true;
     }
+    else {
+        mode |= S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
+    }
   }
   // Checking the bitmask, if the last 3 bits are all zero then process as a regular
   // file type (S_IFDIR or S_IFREG), otherwise return mode unmodified so that S_IFIFO,
