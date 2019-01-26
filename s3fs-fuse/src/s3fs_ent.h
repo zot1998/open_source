@@ -16,11 +16,13 @@ class Ent
         virtual bool  isDir(void)       { return S_ISDIR(m_stAttr.st_mode);}
         virtual bool  fileType(void)  { return m_stAttr.st_mode & S_IFMT;}
         virtual bool  isExists(void)  { return m_bExists;}
+        virtual bool  isRoot(void)     { return m_strPath == "/";}
         struct  stat &stat(void)        { return m_stAttr;}
         virtual int   build(Ent &ent)   { return 0;}
         virtual int   build(void)       { return 0;}
         virtual int   remove(void)     { return 0;}
         virtual char *path(void)        { return m_strPath.c_str();}
+        virtual size_t size(void)       { return m_stAttr.st_size;} 
 
     protected:
         bool        m_bExists;
