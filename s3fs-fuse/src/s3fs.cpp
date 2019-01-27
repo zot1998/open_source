@@ -55,11 +55,11 @@
 #include "s3fs_rsync.h"
 
 #include "s3fs_oper.h"
-#include "monitor.h"
+#include "s3fs_stats.h"
 using namespace std;
-monitor monitor::m_instance;
-pthread_t  monitor::m_ThreadId;
-bool    monitor::m_bRunFlag = true;
+S3Stat S3Stat::m_instance;
+pthread_t  S3Stat::m_ThreadId;
+bool    S3Stat::m_bRunFlag = true;
 
 //-------------------------------------------------------------------
 // Define
@@ -1284,7 +1284,7 @@ static void* s3fs_init(struct fuse_conn_info* conn)
      conn->want |= FUSE_CAP_ATOMIC_O_TRUNC;
   }
   #endif
-  monitor::instance().run();
+  S3Stat::run();
   if((unsigned int)conn->capable & FUSE_CAP_BIG_WRITES){
      conn->want |= FUSE_CAP_BIG_WRITES;
   }
@@ -3041,13 +3041,13 @@ int main(int argc, char* argv[])
     exit(EXIT_FAILURE);
   }
 
-  monitor::instance().bucket(bucket);
+  S3Stat::instance().bucket(bucket);
   
   // now passing things off to fuse, fuse will finish evaluating the command line args
   fuse_res = fuse_main(custom_args.argc, custom_args.argv, &s3fs_oper, NULL);
   fuse_opt_free_args(&custom_args);
 
-  monitor::instance().exit();
+  S3Stat::instance().exit();
   // Destroy curl
   if(!S3fsCurl::DestroyS3fsCurl()){
     S3FS_PRN_WARN("Could not release curl library.");

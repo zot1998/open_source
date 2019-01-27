@@ -50,7 +50,7 @@
 #include "s3fs_util.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
-#include "monitor.h"
+#include "s3fs_stats.h"
 
 using namespace std;
 
