@@ -57,9 +57,7 @@
 #include "s3fs_oper.h"
 #include "s3fs_stats.h"
 using namespace std;
-S3Stat S3Stat::m_instance;
-pthread_t  S3Stat::m_ThreadId;
-bool    S3Stat::m_bRunFlag = true;
+
 
 //-------------------------------------------------------------------
 // Define
@@ -197,130 +195,161 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
 
 // fuse interface functions
 static int s3fs_getattr(const char* path, struct stat* stbuf) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.getattr(stbuf);
 }
 static int s3fs_readlink(const char* path, char* buf, size_t size) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.readlink(buf, size);
 }
 static int s3fs_mknod(const char* path, mode_t mode, dev_t rdev) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.mknod(mode, rdev);
 }
 static int s3fs_mkdir(const char* path, mode_t mode) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.mkdir(mode);
 }
 static int s3fs_unlink(const char* path) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.unlink();
 }
 static int s3fs_rmdir(const char* path) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.rmdir();
 }    
 static int s3fs_symlink(const char* from, const char* to) {
+    S3FS_STATS();
     S3fsOper oper(to, from);
     return oper.symlink();
 }
 static int s3fs_rename(const char* from, const char* to) {
+    S3FS_STATS();
     S3fsOper oper(to, from);
     return oper.rename();
 }
 static int s3fs_link(const char* from, const char* to) {
+    S3FS_STATS();
     S3fsOper oper(to, from);
     return oper.link();
 }
 static int s3fs_chmod(const char* path, mode_t mode) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.chmod(mode);
 }
 static int s3fs_chmod_nocopy(const char* path, mode_t mode) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.chmod(mode, false);
 }
 static int s3fs_chown(const char* path, uid_t uid, gid_t gid) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.chown(uid, gid);
 }
 static int s3fs_chown_nocopy(const char* path, uid_t uid, gid_t gid) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.chown(uid, gid, false);
 }
 static int s3fs_utimens(const char* path, const struct timespec ts[2]) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.utimens(ts);
 }
 static int s3fs_utimens_nocopy(const char* path, const struct timespec ts[2]) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.utimens(ts, false);
 }
 static int s3fs_truncate(const char* path, off_t size) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.truncate(size);
 }
 static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.create(mode, fi);
 }
 static int s3fs_open(const char* path, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.open(fi);
 }
 static int s3fs_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper;
     return S3fsOper(path).read(buf, size, offset, fi);
 }
 static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.write(buf, size, offset, fi);
 }
 static int s3fs_statfs(const char* path, struct statvfs* stbuf) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.statfs(stbuf);
 }
 static int s3fs_flush(const char* path, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.flush(fi);
 }
 static int s3fs_fsync(const char* path, int datasync, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.fsync(datasync, fi);
 }
 static int s3fs_release(const char* path, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.release(fi);
 }
 static int s3fs_opendir(const char* path, struct fuse_file_info* fi) {
+    S3FS_STATS();
     return S3fsOper(path).opendir(fi);
 }
 static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.readdir(buf, filler, offset, fi);
 }
 static int s3fs_access(const char* path, int mask) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.access(mask);
 }
 
 static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.setxattr(name, value, size, flags);
 }
 static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.getxattr(name, value, size);
 }
 
 
 static int s3fs_listxattr(const char* path, char* list, size_t size) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.listxattr(list, size);
 }
 
 
 static int s3fs_removexattr(const char* path, const char* name) {
+    S3FS_STATS();
     S3fsOper oper(path);
     return oper.removexattr(name);
 }
@@ -1290,11 +1319,12 @@ static void* s3fs_init(struct fuse_conn_info* conn)
   }
 
   int rc = 0;
-  rc = S3RSync::init();
+  rc = S3RSync::start();
   if (rc) {
     S3FS_PRN_CRIT("S3RSync::init failed(%d).", rc);
     return rc;  
   }
+  S3Stat::instance().bucket(bucket);
 
   return NULL;
 }
@@ -1309,6 +1339,7 @@ static void s3fs_destroy(void*)
   }
 
   S3RSync::exit();
+  S3Stat::instance().exit();
 }
 
 
@@ -3040,14 +3071,12 @@ int main(int argc, char* argv[])
     s3fs_destroy_global_ssl();
     exit(EXIT_FAILURE);
   }
-
-  S3Stat::instance().bucket(bucket);
   
   // now passing things off to fuse, fuse will finish evaluating the command line args
   fuse_res = fuse_main(custom_args.argc, custom_args.argv, &s3fs_oper, NULL);
   fuse_opt_free_args(&custom_args);
 
-  S3Stat::instance().exit();
+  
   // Destroy curl
   if(!S3fsCurl::DestroyS3fsCurl()){
     S3FS_PRN_WARN("Could not release curl library.");

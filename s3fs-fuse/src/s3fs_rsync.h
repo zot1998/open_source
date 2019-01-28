@@ -20,8 +20,8 @@ class S3RSync
             return m_instance;
         }
         
-        int  init(void);
-        void exit(void);
+        int  start(void);
+        void stop(void);
 
         void setSyncAddFunc(RSYNC_ADD func) { m_syncAddFunc = func;}
         void setSyncDelFunc(RSYNC_DEL func) { m_syncDelFunc = func;}
@@ -34,9 +34,8 @@ class S3RSync
 
         void resetStatus(void);
 
-        int  startThread(void);
 
-        static void * ThreadLoop(void *pArg);
+        static void * run(void *pArg);
 
 
    

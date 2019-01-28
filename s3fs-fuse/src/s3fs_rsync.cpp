@@ -25,7 +25,7 @@ S3RSync::S3RSync() {
 S3RSync::~S3RSync() {
 }
 
-int S3RSync::init(void){
+int S3RSync::start(void){
     int rc = 0;
 
     rc = S3DB::Instance().init();
@@ -33,17 +33,23 @@ int S3RSync::init(void){
         return rc;
     }
 
-    rc = startThread();
+    resetStatus();
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    m_bRunFlag = true;
+    
+    rc = pthread_create(&m_stThreadId, &attr, run, NULL);
     if (rc) {
+        m_stThreadId = -1;
+        S3FS_PRN_ERR("Failed to create thread(%d)", rc);
         return rc;
     }
-
-    resetStatus();
     
     return 0;
 }
 
-void S3RSync::exit(void) {
+void S3RSync::stop(void) {
     m_bRunFlag = false;
     if ((pthread_t)-1 != m_stThreadId) {
         pthread_join(m_stThreadId, NULL);
@@ -68,24 +74,10 @@ void S3RSync::resetStatus(void) {
 }
 
 
-int S3RSync::startThread(void) {
-    int rc = 0;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    m_bRunFlag = true;
-    
-    rc = pthread_create(&m_stThreadId, &attr, ThreadLoop, NULL);
-    if (rc) {
-        m_stThreadId = -1;
-        S3FS_PRN_ERR("Failed to create thread(%d)", rc);
-        return rc;
-    }
-
-    return 0;
-}
 
 
-void *S3RSync::ThreadLoop(void *pArg) {
+
+void *S3RSync::run(void *pArg) {
     int rc = 0;
     while (m_bRunFlag) {
         rc = S3RSync::Instance().rsync();
