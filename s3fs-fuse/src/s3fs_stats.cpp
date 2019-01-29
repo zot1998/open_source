@@ -22,6 +22,15 @@ S3Stat S3Stat::m_instance;
 pthread_t  S3Stat::m_ThreadId;
 bool    S3Stat::m_bRunFlag = true;
 
+static uint64 getmsec()
+{
+  struct timeval now;
+  if(0 != gettimeofday(&now, NULL)){
+    return 0;
+  }
+  return ((uint64)now.tv_sec) * 1000 + (now.tv_usec/1000);
+}
+
 
 S3OperStat::S3OperStat(const char *name):m_strName(name)
 {
@@ -184,7 +193,7 @@ static void *S3Stat::run(void *Arg){
 }
 
         
-S3OperStat & S3Stat::getoper(const char *name)
+S3OperStat * S3Stat::getOper(const char *name)
 {
     pthread_mutex_lock(&m_lock);
     S3OperStat * &op = m_mapOper[name];

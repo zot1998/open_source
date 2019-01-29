@@ -42,10 +42,10 @@ AutoLockRef *AutoFileLock::get(const char *file)
     std::map<std::string, AutoLockRef *>::iterator it;
     
     pthread_mutex_lock(&m_lock);
-    it = m_mapFile.find(m_file);
+    it = m_mapFile.find(m_strFile);
     if (it == m_mapFile.end()) {
         p = new AutoLockRef;
-        m_mapFile[m_file] = p;
+        m_mapFile[m_strFile] = p;
     } else {
         p = (*it).second;
         p->inc_ref();

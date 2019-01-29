@@ -40,7 +40,9 @@ S3fsOper::~S3fsOper()
 //s3fs_getattr
 int S3fsOper::getattr(struct stat* stbuf)
 {
-    int result;
+    int result = 0;
+
+    #if 0
 
     // check parent directory attribute.
     if(0 != (result = check_parent_object_access(m_dstEnt.path(), X_OK))){
@@ -59,11 +61,14 @@ int S3fsOper::getattr(struct stat* stbuf)
     S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", m_dstEnt.path(), (unsigned int)(stbuf->st_uid), (unsigned int)(stbuf->st_gid), stbuf->st_mode);
     S3FS_MALLOCTRIM(0);
 
+    #endif
+
     return result;
 }
 
 int S3fsOper::readlink(const char* path, char* buf, size_t size)
 {
+    #if 0
     if(!path || !buf || 0 >= size){
         return 0;
     }
@@ -98,6 +103,7 @@ int S3fsOper::readlink(const char* path, char* buf, size_t size)
 
     FdManager::get()->Close(ent);
     S3FS_MALLOCTRIM(0);
+    #endif
 
     return 0;
 }
@@ -110,8 +116,10 @@ int S3fsOper::mknod(const char *path, mode_t mode, dev_t rdev)
 
 int S3fsOper::mkdir(mode_t mode)
 {
-    int result;
-    struct fuse_context* pcxt;
+    int result = 0;
+    struct fuse_context* pcxt = NULL;
+
+    #if 0
 
     S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
 
@@ -144,12 +152,16 @@ int S3fsOper::mkdir(mode_t mode)
         S3DB::Instance().insertDB(record);
     }
 
+    #endif
+
     return result;
 }
 
 int S3fsOper::rmdir(void)
-{
+{    
     int result;
+
+    #if 0
     
     if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
         return result;
@@ -165,6 +177,7 @@ int S3fsOper::rmdir(void)
         S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.stat().st_mode);
         S3DB::Instance().insertDB(record);
     }
+    #endif
 
     return result;
 }
@@ -173,6 +186,7 @@ int S3fsOper::rmdir(void)
 
 int S3fsOper::unlink(void)
 {
+    #if 0
     int result;
 
     if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
@@ -184,12 +198,14 @@ int S3fsOper::unlink(void)
         S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.stat().st_mode);
         S3DB::Instance().insertDB(record);
     }
+    #endif
 
     return result;
 }
 
 int S3fsOper::symlink(void)
 {
+    #if 0
     int result;
     struct fuse_context* pcxt;
     
@@ -233,7 +249,7 @@ int S3fsOper::symlink(void)
     
     S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_ADD, m_dstEnt.stat().st_mode);
     S3DB::Instance().insertDB(record);
-
+    #endif
     
 
     return result;
@@ -242,6 +258,7 @@ int S3fsOper::symlink(void)
 
 int S3fsOper::rename(void)
 {
+    #if 0
     int result;
     
     if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
@@ -270,6 +287,7 @@ int S3fsOper::rename(void)
         }
     }
     S3FS_MALLOCTRIM(0);
+    #endif
 
     return result;
 }
@@ -282,6 +300,7 @@ int S3fsOper::link(void)
 
 int S3fsOper::chmod(mode_t mode, bool iscopy)
 {
+    #if 0
     int result;
     string strpath;
     string newpath;
@@ -358,6 +377,7 @@ int S3fsOper::chmod(mode_t mode, bool iscopy)
         }
     }
     S3FS_MALLOCTRIM(0);
+    #endif
 
     return 0;
 }

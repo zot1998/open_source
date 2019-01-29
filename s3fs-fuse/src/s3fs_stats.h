@@ -51,15 +51,6 @@ typedef struct oper_statinfo_s{
 }oper_statinfo_t;
 
 
-static uint64 getmsec()
-{
-  struct timeval now;
-  if(0 != gettimeofday(&now, NULL)){
-    return 0;
-  }
-  return ((uint64)now.tv_sec) * 1000 + (now.tv_usec/1000);
-}
-
 //最近1000个io的时延统计
 #define OPER_LAST_COUNT 1000
 class S3OperStat
@@ -84,7 +75,7 @@ class S3OperStat
 };
 
 
-typedef std::map<const char *, oper *> OPER_MAP;
+typedef std::map<const char *, S3OperStat *> OPER_MAP;
 
 class S3Stat{
     public:
@@ -92,8 +83,8 @@ class S3Stat{
             return m_instance;
         }
         
-        void bucket(std::string & bucket) { m_strBucketName = bucket;}
-        S3OperStat &getoper(const char *name);
+        void setBucket(std::string & bucket) { m_strBucketName = bucket;}
+        S3OperStat * getOper(const char *name);
         std::string get(void);
         void flush(void);
         
@@ -122,8 +113,8 @@ class S3Stat{
 class AutoS3Stat
 {
     public:
-        AutoS3Stat(const char *name) { m_pOper = S3Stat::instance().getoper(name); m_id = m_pOper->enter();}
-        ~AutoS3Stat() { if (NULL != m_pOper) { m_pOper.exit(m_id)}}
+        AutoS3Stat(const char *name) { m_pOper = S3Stat::instance().getOper(name); m_id = m_pOper->enter();}
+        ~AutoS3Stat() { if (NULL != m_pOper) { m_pOper->exit(m_id);}}
         
     private:
         S3OperStat *m_pOper;

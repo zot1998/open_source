@@ -12,7 +12,7 @@ class Ent
         Ent(const std::string &path);
         virtual ~Ent();
 
-        virtual int   init(void);       { return 0;}
+        virtual int   init(void)        { return 0;}
         virtual bool  isDir(void)       { return S_ISDIR(m_stAttr.st_mode);}
         virtual bool  fileType(void)  { return m_stAttr.st_mode & S_IFMT;}
         virtual bool  isExists(void)  { return m_bExists;}
@@ -21,7 +21,7 @@ class Ent
         virtual int   build(Ent &ent)   { return 0;}
         virtual int   build(void)       { return 0;}
         virtual int   remove(void)     { return 0;}
-        virtual char *path(void)        { return m_strPath.c_str();}
+        virtual const char *path(void)        { return m_strPath.c_str();}
         virtual size_t size(void)       { return m_stAttr.st_size;} 
 
     protected:
@@ -42,9 +42,9 @@ class VfsEnt:public Ent
         //int build(Ent &ent);
         int build(void); //int s3fsLocalMk(const char* path, struct stat* pstAttr);
         int remove(void);
-        int open(int flags, mode_t mode);
-        int close(int fd);
-        int errno(void) { return m_errno; }
+        //int open(int flags, mode_t mode);
+        //int close(int fd);
+        int getErrno(void) { return m_errno; }
 
     private:
         std::string m_strCachePath;

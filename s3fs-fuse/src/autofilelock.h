@@ -8,8 +8,8 @@
 class AutoLockRef
 {
     public:
-        AutoFileLock(){ m_ref = 1;pthread_mutex_init(&m_lock); }
-        ~AutoFileLock(){ pthread_mutex_destroy(&m_lock); }
+        AutoLockRef(){ m_ref = 1;pthread_mutex_init(&m_lock, NULL); }
+        ~AutoLockRef(){ pthread_mutex_destroy(&m_lock); }
         int inc_ref(void){ return ++m_ref;}
         int dec_ref(void){ return --m_ref;}
         void lock(void) { pthread_mutex_lock(&m_lock); }
@@ -25,9 +25,9 @@ class AutoFileLock
     public:
         AutoFileLock(const char *file);
         ~AutoFileLock();
-        static void init(void) { m_mapFile.clear(); pthread_mutex_init(&m_lock);}
+        static void init(void) { m_mapFile.clear(); pthread_mutex_init(&m_lock, NULL);}
     private:
-        AutoLockRef *get(const char *file);
+        AutoLockRef * get(const char *file);
     private:
         std::string  m_strFile;
         AutoLockRef *m_pAutoLockRef;

@@ -56,6 +56,8 @@
 
 #include "s3fs_oper.h"
 #include "s3fs_stats.h"
+#include "autofilelock.h"
+
 using namespace std;
 
 
@@ -70,8 +72,6 @@ enum dirtype {
   DIRTYPE_NOOBJ = 3,
 };
 
-static bool IS_REPLACEDIR(dirtype type) { return DIRTYPE_OLD == type || DIRTYPE_FOLDER == type || DIRTYPE_NOOBJ == type; }
-static bool IS_RMTYPEDIR(dirtype type) { return DIRTYPE_OLD == type || DIRTYPE_FOLDER == type; }
 
 #if !defined(ENOATTR)
 #define ENOATTR				ENODATA
@@ -155,33 +155,13 @@ static void s3fs_usr2_handler(int sig);
 static bool set_s3fs_usr2_handler(void);
 static s3fs_log_level set_s3fs_log_level(s3fs_log_level level);
 static s3fs_log_level bumpup_s3fs_log_level(void);
-static bool is_special_name_folder_object(const char* path);
 static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t* pmeta = NULL, bool overcheck = true, bool* pisforce = NULL, bool add_no_truncate_cache = false);
-static int check_object_access(const char* path, int mask, struct stat* pstbuf);
-static int check_object_owner(const char* path, struct stat* pstbuf);
-static int check_parent_object_access(const char* path, int mask);
-static FdEntity* get_local_fent(const char* path, bool is_load = false);
-static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only = false);
-static int directory_empty(const char* path);
-static bool is_truncated(xmlDocPtr doc);
-static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
-              const char* ex_contents, const char* ex_key, const char* ex_etag, int isCPrefix, S3ObjList& head);
-static int append_objects_from_xml(const char* path, xmlDocPtr doc, S3ObjList& head);
 static bool GetXmlNsUrl(xmlDocPtr doc, string& nsurl);
-static xmlChar* get_base_exp(xmlDocPtr doc, const char* exp);
-static xmlChar* get_prefix(xmlDocPtr doc);
-static xmlChar* get_next_marker(xmlDocPtr doc);
-static char* get_object_name(xmlDocPtr doc, xmlNodePtr node, const char* path);
-static int put_headers(const char* path, headers_t& meta, bool is_copy);
 static int remote_mountpath_exists(const char* path);
 static xmlChar* get_exp_value_xml(xmlDocPtr doc, xmlXPathContextPtr ctx, const char* exp_key);
 static void print_uncomp_mp_list(uncomp_mp_list_t& list);
 static bool abort_uncomp_mp_list(uncomp_mp_list_t& list);
 static bool get_uncomp_mp_list(xmlDocPtr doc, uncomp_mp_list_t& list);
-static void free_xattrs(xattrs_t& xattrs);
-static bool parse_xattr_keyval(const std::string& xattrpair, string& key, PXATTRVAL& pval);
-static size_t parse_xattrs(const std::string& strxattrs, xattrs_t& xattrs);
-static std::string build_xattrs(const xattrs_t& xattrs);
 static int s3fs_utility_mode(void);
 static int s3fs_check_service(void);
 static int parse_passwd_file(bucketkvmap_t& resmap);
@@ -286,8 +266,8 @@ static int s3fs_open(const char* path, struct fuse_file_info* fi) {
 }
 static int s3fs_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
     S3FS_STATS();
-    S3fsOper oper;
-    return S3fsOper(path).read(buf, size, offset, fi);
+    S3fsOper oper(path);
+    return oper.read(buf, size, offset, fi);
 }
 static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
     S3FS_STATS();
@@ -405,35 +385,7 @@ static s3fs_log_level bumpup_s3fs_log_level(void)
   return old;
 }
 
-static bool is_special_name_folder_object(const char* path)
-{
-  if(!support_compat_dir){
-    // s3fs does not support compatibility directory type("_$folder$" etc) now,
-    // thus always returns false.
-    return false;
-  }
 
-  if(!path || '\0' == path[0]){
-    return false;
-  }
-
-  string    strpath = path;
-  headers_t header;
-
-  if(string::npos == strpath.find("_$folder$", 0)){
-    if('/' == strpath[strpath.length() - 1]){
-      strpath = strpath.substr(0, strpath.length() - 1);
-    }
-    strpath += "_$folder$";
-  }
-  S3fsCurl s3fscurl;
-  if(0 != s3fscurl.HeadRequest(strpath.c_str(), header)){
-    return false;
-  }
-  header.clear();
-  S3FS_MALLOCTRIM(0);
-  return true;
-}
 
 
 
@@ -481,160 +433,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   return result;
 }
 
-//
-// Check the object uid and gid for write/read/execute.
-// The param "mask" is as same as access() function.
-// If there is not a target file, this function returns -ENOENT.
-// If the target file can be accessed, the result always is 0.
-//
-// path:   the target object path
-// mask:   bit field(F_OK, R_OK, W_OK, X_OK) like access().
-// stat:   NULL or the pointer of struct stat.
-//
-static int check_object_access(const char* path, int mask, struct stat* pstbuf)
-{
-  int result;
-  struct stat st;
-  struct stat* pst = (pstbuf ? pstbuf : &st);
-  struct fuse_context* pcxt;
 
-  S3FS_PRN_DBG("[path=%s]", path);
-
-  if(NULL == (pcxt = fuse_get_context())){
-    return -EIO;
-  }
-  if(0 != (result = get_object_attribute(path, pst))){
-    // If there is not the target file(object), result is -ENOENT.
-    return result;
-  }
-  if(0 == pcxt->uid){
-    // root is allowed all accessing.
-    return 0;
-  }
-  if(is_s3fs_uid && s3fs_uid == pcxt->uid){
-    // "uid" user is allowed all accessing.
-    return 0;
-  }
-  if(F_OK == mask){
-    // if there is a file, always return allowed.
-    return 0;
-  }
-
-  // for "uid", "gid" option
-  uid_t  obj_uid = (is_s3fs_uid ? s3fs_uid : pst->st_uid);
-  gid_t  obj_gid = (is_s3fs_gid ? s3fs_gid : pst->st_gid);
-
-  // compare file mode and uid/gid + mask.
-  mode_t mode;
-  mode_t base_mask = S_IRWXO;
-  if(is_s3fs_umask){
-    // If umask is set, all object attributes set ~umask.
-    mode = ((S_IRWXU | S_IRWXG | S_IRWXO) & ~s3fs_umask);
-  }else{
-    mode = pst->st_mode;
-  }
-  if(pcxt->uid == obj_uid){
-    base_mask |= S_IRWXU;
-  }
-  if(pcxt->gid == obj_gid){
-    base_mask |= S_IRWXG;
-  }
-  if(1 == is_uid_include_group(pcxt->uid, obj_gid)){
-    base_mask |= S_IRWXG;
-  }
-  mode &= base_mask;
-
-  if(X_OK == (mask & X_OK)){
-    if(0 == (mode & (S_IXUSR | S_IXGRP | S_IXOTH))){
-      return -EPERM;
-    }
-  }
-  if(W_OK == (mask & W_OK)){
-    if(0 == (mode & (S_IWUSR | S_IWGRP | S_IWOTH))){
-      return -EACCES;
-    }
-  }
-  if(R_OK == (mask & R_OK)){
-    if(0 == (mode & (S_IRUSR | S_IRGRP | S_IROTH))){
-      return -EACCES;
-    }
-  }
-  if(0 == mode){
-    return -EACCES;
-  }
-  return 0;
-}
-
-static int check_object_owner(const char* path, struct stat* pstbuf)
-{
-  int result;
-  struct stat st;
-  struct stat* pst = (pstbuf ? pstbuf : &st);
-  struct fuse_context* pcxt;
-
-  S3FS_PRN_DBG("[path=%s]", path);
-
-  if(NULL == (pcxt = fuse_get_context())){
-    return -EIO;
-  }
-  if(0 != (result = get_object_attribute(path, pst))){
-    // If there is not the target file(object), result is -ENOENT.
-    return result;
-  }
-  // check owner
-  if(0 == pcxt->uid){
-    // root is allowed all accessing.
-    return 0;
-  }
-  if(is_s3fs_uid && s3fs_uid == pcxt->uid){
-    // "uid" user is allowed all accessing.
-    return 0;
-  }
-  if(pcxt->uid == pst->st_uid){
-    return 0;
-  }
-  return -EPERM;
-}
-
-//
-// Check accessing the parent directories of the object by uid and gid.
-//
-static int check_parent_object_access(const char* path, int mask)
-{
-  string parent;
-  int result;
-
-  S3FS_PRN_DBG("[path=%s]", path);
-
-  if(0 == strcmp(path, "/") || 0 == strcmp(path, ".")){
-    // path is mount point.
-    return 0;
-  }
-  if(X_OK == (mask & X_OK)){
-    for(parent = mydirname(path); 0 < parent.size(); parent = mydirname(parent)){
-      if(parent == "."){
-        parent = "/";
-      }
-      if(0 != (result = check_object_access(parent.c_str(), X_OK, NULL))){
-        return result;
-      }
-      if(parent == "/" || parent == "."){
-        break;
-      }
-    }
-  }
-  mask = (mask & ~X_OK);
-  if(0 != mask){
-    parent = mydirname(path);
-    if(parent == "."){
-      parent = "/";
-    }
-    if(0 != (result = check_object_access(parent.c_str(), mask, NULL))){
-      return result;
-    }
-  }
-  return 0;
-}
 
 //
 // ssevalue is MD5 for SSE-C type, or KMS id for SSE-KMS
@@ -668,34 +467,7 @@ bool get_object_sse_type(const char* path, sse_type_t& ssetype, string& ssevalue
   return true;
 }
 
-FdEntity* get_local_fent(const char* path, bool is_load)
-{
-  struct stat stobj;
-  FdEntity*   ent;
-  headers_t   meta;
 
-  S3FS_PRN_INFO2("[path=%s]", path);
-
-  if(0 != get_object_attribute(path, &stobj, &meta)){
-    return NULL;
-  }
-
-  // open
-  time_t mtime         = (!S_ISREG(stobj.st_mode) || S_ISLNK(stobj.st_mode)) ? -1 : stobj.st_mtime;
-  bool   force_tmpfile = S_ISREG(stobj.st_mode) ? false : true;
-
-  if(NULL == (ent = FdManager::get()->Open(path, &meta, static_cast<ssize_t>(stobj.st_size), mtime, force_tmpfile, true))){
-    S3FS_PRN_ERR("Could not open file. errno(%d)", errno);
-    return NULL;
-  }
-  // load
-  if(is_load && !ent->OpenAndLoadAll(&meta)){
-    S3FS_PRN_ERR("Could not load file. errno(%d)", errno);
-    FdManager::get()->Close(ent);
-    return NULL;
-  }
-  return ent;
-}
 
 
 static int do_create_bucket(void)
@@ -747,209 +519,6 @@ static int do_create_bucket(void)
 
 
 
-
-
-
-static int directory_empty(const char* path)
-{
-  int result;
-  S3ObjList head;
-
-  if((result = list_bucket(path, head, "/", true)) != 0){
-    S3FS_PRN_ERR("list_bucket returns error.");
-    return result;
-  }
-  if(!head.IsEmpty()){
-    return -ENOTEMPTY;
-  }
-  return 0;
-}
-
-
-
-
-
-
-
-static int list_bucket(const char* path, S3ObjList& head, const char* delimiter, bool check_content_only)
-{
-  string    s3_realpath;
-  string    query_delimiter;;
-  string    query_prefix;;
-  string    query_maxkey;;
-  string    next_marker = "";
-  bool      truncated = true;
-  S3fsCurl  s3fscurl;
-  xmlDocPtr doc;
-
-  S3FS_PRN_INFO1("[path=%s]", path);
-
-  if(delimiter && 0 < strlen(delimiter)){
-    query_delimiter += "delimiter=";
-    query_delimiter += delimiter;
-    query_delimiter += "&";
-  }
-
-  query_prefix += "&prefix=";
-  s3_realpath = get_realpath(path);
-  if(0 == s3_realpath.length() || '/' != s3_realpath[s3_realpath.length() - 1]){
-    // last word must be "/"
-    query_prefix += urlEncode(s3_realpath.substr(1) + "/");
-  }else{
-    query_prefix += urlEncode(s3_realpath.substr(1));
-  }
-  if (check_content_only){
-    // Just need to know if there are child objects in dir
-    // For dir with children, expect "dir/" and "dir/child"
-    query_maxkey += "max-keys=2";
-  }else{
-    query_maxkey += "max-keys=" + str(max_keys_list_object);
-  }
-
-  while(truncated){
-    string each_query = query_delimiter;
-    if(next_marker != ""){
-      each_query += "marker=" + urlEncode(next_marker) + "&";
-      next_marker = "";
-    }
-    each_query += query_maxkey;
-    each_query += query_prefix;
-
-    // request
-    int result; 
-    if(0 != (result = s3fscurl.ListBucketRequest(path, each_query.c_str()))){
-      S3FS_PRN_ERR("ListBucketRequest returns with error.");
-      return result;
-    }
-    BodyData* body = s3fscurl.GetBodyData();
-
-    // xmlDocPtr
-    if(NULL == (doc = xmlReadMemory(body->str(), static_cast<int>(body->size()), "", NULL, 0))){
-      S3FS_PRN_ERR("xmlReadMemory returns with error.");
-      return -1;
-    }
-    if(0 != append_objects_from_xml(path, doc, head)){
-      S3FS_PRN_ERR("append_objects_from_xml returns with error.");
-      xmlFreeDoc(doc);
-      return -1;
-    }
-    if(true == (truncated = is_truncated(doc))){
-      xmlChar*	tmpch = get_next_marker(doc);
-      if(tmpch){
-        next_marker = (char*)tmpch;
-        xmlFree(tmpch);
-      }else{
-        // If did not specify "delimiter", s3 did not return "NextMarker".
-        // On this case, can use last name for next marker.
-        //
-        string lastname;
-        if(!head.GetLastName(lastname)){
-          S3FS_PRN_WARN("Could not find next marker, thus break loop.");
-          truncated = false;
-        }else{
-          next_marker = s3_realpath.substr(1);
-          if(0 == s3_realpath.length() || '/' != s3_realpath[s3_realpath.length() - 1]){
-            next_marker += "/";
-          }
-          next_marker += lastname;
-        }
-      }
-    }
-    S3FS_XMLFREEDOC(doc);
-
-    // reset(initialize) curl object
-    s3fscurl.DestroyCurlHandle();
-
-    if (check_content_only)
-      break;
-  }
-  S3FS_MALLOCTRIM(0);
-
-  return 0;
-}
-
-static const char* c_strErrorObjectName = "FILE or SUBDIR in DIR";
-
-static int append_objects_from_xml_ex(const char* path, xmlDocPtr doc, xmlXPathContextPtr ctx, 
-       const char* ex_contents, const char* ex_key, const char* ex_etag, int isCPrefix, S3ObjList& head)
-{
-  xmlXPathObjectPtr contents_xp;
-  xmlNodeSetPtr content_nodes;
-
-  if(NULL == (contents_xp = xmlXPathEvalExpression((xmlChar*)ex_contents, ctx))){
-    S3FS_PRN_ERR("xmlXPathEvalExpression returns null.");
-    return -1;
-  }
-  if(xmlXPathNodeSetIsEmpty(contents_xp->nodesetval)){
-    S3FS_PRN_DBG("contents_xp->nodesetval is empty.");
-    S3FS_XMLXPATHFREEOBJECT(contents_xp);
-    return 0;
-  }
-  content_nodes = contents_xp->nodesetval;
-
-  bool   is_dir;
-  string stretag;
-  int    i;
-  for(i = 0; i < content_nodes->nodeNr; i++){
-    ctx->node = content_nodes->nodeTab[i];
-
-    // object name
-    xmlXPathObjectPtr key;
-    if(NULL == (key = xmlXPathEvalExpression((xmlChar*)ex_key, ctx))){
-      S3FS_PRN_WARN("key is null. but continue.");
-      continue;
-    }
-    if(xmlXPathNodeSetIsEmpty(key->nodesetval)){
-      S3FS_PRN_WARN("node is empty. but continue.");
-      xmlXPathFreeObject(key);
-      continue;
-    }
-    xmlNodeSetPtr key_nodes = key->nodesetval;
-    char* name = get_object_name(doc, key_nodes->nodeTab[0]->xmlChildrenNode, path);
-
-    if(!name){
-      S3FS_PRN_WARN("name is something wrong. but continue.");
-
-    }else if((const char*)name != c_strErrorObjectName){
-      is_dir  = isCPrefix ? true : false;
-      stretag = "";
-
-      if(!isCPrefix && ex_etag){
-        // Get ETag
-        xmlXPathObjectPtr ETag;
-        if(NULL != (ETag = xmlXPathEvalExpression((xmlChar*)ex_etag, ctx))){
-          if(xmlXPathNodeSetIsEmpty(ETag->nodesetval)){
-            S3FS_PRN_INFO("ETag->nodesetval is empty.");
-          }else{
-            xmlNodeSetPtr etag_nodes = ETag->nodesetval;
-            xmlChar* petag = xmlNodeListGetString(doc, etag_nodes->nodeTab[0]->xmlChildrenNode, 1);
-            if(petag){
-              stretag = (char*)petag;
-              xmlFree(petag);
-            }
-          }
-          xmlXPathFreeObject(ETag);
-        }
-      }
-      if(!head.insert(name, (0 < stretag.length() ? stretag.c_str() : NULL), is_dir)){
-        S3FS_PRN_ERR("insert_object returns with error.");
-        xmlXPathFreeObject(key);
-        xmlXPathFreeObject(contents_xp);
-        free(name);
-        S3FS_MALLOCTRIM(0);
-        return -1;
-      }
-      free(name);
-    }else{
-      S3FS_PRN_DBG("name is file or subdir in dir. but continue.");
-    }
-    xmlXPathFreeObject(key);
-  }
-  S3FS_XMLXPATHFREEOBJECT(contents_xp);
-
-  return 0;
-}
-
 static bool GetXmlNsUrl(xmlDocPtr doc, string& nsurl)
 {
   static time_t tmLast = 0;  // cache for 60 sec.
@@ -981,185 +550,15 @@ static bool GetXmlNsUrl(xmlDocPtr doc, string& nsurl)
   return result;
 }
 
-static int append_objects_from_xml(const char* path, xmlDocPtr doc, S3ObjList& head)
-{
-  string xmlnsurl;
-  string ex_contents = "//";
-  string ex_key      = "";
-  string ex_cprefix  = "//";
-  string ex_prefix   = "";
-  string ex_etag     = "";
 
-  if(!doc){
-    return -1;
-  }
 
-  // If there is not <Prefix>, use path instead of it.
-  xmlChar* pprefix = get_prefix(doc);
-  string   prefix  = (pprefix ? (char*)pprefix : path ? path : "");
-  if(pprefix){
-    xmlFree(pprefix);
-  }
 
-  xmlXPathContextPtr ctx = xmlXPathNewContext(doc);
 
-  if(!noxmlns && GetXmlNsUrl(doc, xmlnsurl)){
-    xmlXPathRegisterNs(ctx, (xmlChar*)"s3", (xmlChar*)xmlnsurl.c_str());
-    ex_contents+= "s3:";
-    ex_key     += "s3:";
-    ex_cprefix += "s3:";
-    ex_prefix  += "s3:";
-    ex_etag    += "s3:";
-  }
-  ex_contents+= "Contents";
-  ex_key     += "Key";
-  ex_cprefix += "CommonPrefixes";
-  ex_prefix  += "Prefix";
-  ex_etag    += "ETag";
 
-  if(-1 == append_objects_from_xml_ex(prefix.c_str(), doc, ctx, ex_contents.c_str(), ex_key.c_str(), ex_etag.c_str(), 0, head) ||
-     -1 == append_objects_from_xml_ex(prefix.c_str(), doc, ctx, ex_cprefix.c_str(), ex_prefix.c_str(), NULL, 1, head) )
-  {
-    S3FS_PRN_ERR("append_objects_from_xml_ex returns with error.");
-    S3FS_XMLXPATHFREECONTEXT(ctx);
-    return -1;
-  }
-  S3FS_XMLXPATHFREECONTEXT(ctx);
 
-  return 0;
-}
 
-static xmlChar* get_base_exp(xmlDocPtr doc, const char* exp)
-{
-  xmlXPathObjectPtr  marker_xp;
-  string xmlnsurl;
-  string exp_string;
 
-  if(!doc){
-    return NULL;
-  }
-  xmlXPathContextPtr ctx = xmlXPathNewContext(doc);
 
-  if(!noxmlns && GetXmlNsUrl(doc, xmlnsurl)){
-    xmlXPathRegisterNs(ctx, (xmlChar*)"s3", (xmlChar*)xmlnsurl.c_str());
-    exp_string = "/s3:ListBucketResult/s3:";
-  } else {
-    exp_string = "/ListBucketResult/";
-  }
-  
-  exp_string += exp;
-
-  if(NULL == (marker_xp = xmlXPathEvalExpression((xmlChar *)exp_string.c_str(), ctx))){
-    xmlXPathFreeContext(ctx);
-    return NULL;
-  }
-  if(xmlXPathNodeSetIsEmpty(marker_xp->nodesetval)){
-    S3FS_PRN_ERR("marker_xp->nodesetval is empty.");
-    xmlXPathFreeObject(marker_xp);
-    xmlXPathFreeContext(ctx);
-    return NULL;
-  }
-  xmlNodeSetPtr nodes  = marker_xp->nodesetval;
-  xmlChar*      result = xmlNodeListGetString(doc, nodes->nodeTab[0]->xmlChildrenNode, 1);
-
-  xmlXPathFreeObject(marker_xp);
-  xmlXPathFreeContext(ctx);
-
-  return result;
-}
-
-static xmlChar* get_prefix(xmlDocPtr doc)
-{
-  return get_base_exp(doc, "Prefix");
-}
-
-static xmlChar* get_next_marker(xmlDocPtr doc)
-{
-  return get_base_exp(doc, "NextMarker");
-}
-
-static bool is_truncated(xmlDocPtr doc)
-{
-  bool result = false;
-
-  xmlChar* strTruncate = get_base_exp(doc, "IsTruncated");
-  if(!strTruncate){
-    return result;
-  }
-  if(0 == strcasecmp((const char*)strTruncate, "true")){
-    result = true;
-  }
-  xmlFree(strTruncate);
-  return result;
-}
-
-// return: the pointer to object name on allocated memory.
-//         the pointer to "c_strErrorObjectName".(not allocated)
-//         NULL(a case of something error occurred)
-static char* get_object_name(xmlDocPtr doc, xmlNodePtr node, const char* path)
-{
-  // Get full path
-  xmlChar* fullpath = xmlNodeListGetString(doc, node, 1);
-  if(!fullpath){
-    S3FS_PRN_ERR("could not get object full path name..");
-    return NULL;
-  }
-  // basepath(path) is as same as fullpath.
-  if(0 == strcmp((char*)fullpath, path)){
-    xmlFree(fullpath);
-    return (char*)c_strErrorObjectName;
-  }
-
-  // Make dir path and filename
-  string   strdirpath = mydirname(string((char*)fullpath));
-  string   strmybpath = mybasename(string((char*)fullpath));
-  const char* dirpath = strdirpath.c_str();
-  const char* mybname = strmybpath.c_str();
-  const char* basepath= (path && '/' == path[0]) ? &path[1] : path;
-  xmlFree(fullpath);
-
-  if(!mybname || '\0' == mybname[0]){
-    return NULL;
-  }
-
-  // check subdir & file in subdir
-  if(dirpath && 0 < strlen(dirpath)){
-    // case of "/"
-    if(0 == strcmp(mybname, "/") && 0 == strcmp(dirpath, "/")){
-      return (char*)c_strErrorObjectName;
-    }
-    // case of "."
-    if(0 == strcmp(mybname, ".") && 0 == strcmp(dirpath, ".")){
-      return (char*)c_strErrorObjectName;
-    }
-    // case of ".."
-    if(0 == strcmp(mybname, "..") && 0 == strcmp(dirpath, ".")){
-      return (char*)c_strErrorObjectName;
-    }
-    // case of "name"
-    if(0 == strcmp(dirpath, ".")){
-      // OK
-      return strdup(mybname);
-    }else{
-      if(basepath && 0 == strcmp(dirpath, basepath)){
-        // OK
-        return strdup(mybname);
-      }else if(basepath && 0 < strlen(basepath) && '/' == basepath[strlen(basepath) - 1] && 0 == strncmp(dirpath, basepath, strlen(basepath) - 1)){
-        string withdirname = "";
-        if(strlen(dirpath) > strlen(basepath)){
-          withdirname = &dirpath[strlen(basepath)];
-        }
-        if(0 < withdirname.length() && '/' != withdirname[withdirname.length() - 1]){
-          withdirname += "/";
-        }
-        withdirname += mybname;
-        return strdup(withdirname.c_str());
-      }
-    }
-  }
-  // case of something wrong
-  return (char*)c_strErrorObjectName;
-}
 
 static int remote_mountpath_exists(const char* path)
 {
@@ -1178,105 +577,9 @@ static int remote_mountpath_exists(const char* path)
 }
 
 
-static void free_xattrs(xattrs_t& xattrs)
-{
-  for(xattrs_t::iterator iter = xattrs.begin(); iter != xattrs.end(); xattrs.erase(iter++)){
-    if(iter->second){
-      delete iter->second;
-    }
-  }
-}
 
-static bool parse_xattr_keyval(const std::string& xattrpair, string& key, PXATTRVAL& pval)
-{
-  // parse key and value
-  size_t pos;
-  string tmpval;
-  if(string::npos == (pos = xattrpair.find_first_of(":"))){
-    S3FS_PRN_ERR("one of xattr pair(%s) is wrong format.", xattrpair.c_str());
-    return false;
-  }
-  key    = xattrpair.substr(0, pos);
-  tmpval = xattrpair.substr(pos + 1);
 
-  if(!takeout_str_dquart(key) || !takeout_str_dquart(tmpval)){
-    S3FS_PRN_ERR("one of xattr pair(%s) is wrong format.", xattrpair.c_str());
-    return false;
-  }
 
-  pval = new XATTRVAL;
-  pval->length = 0;
-  pval->pvalue = s3fs_decode64(tmpval.c_str(), &pval->length);
-
-  return true;
-}
-
-static size_t parse_xattrs(const std::string& strxattrs, xattrs_t& xattrs)
-{
-  xattrs.clear();
-
-  // decode
-  string jsonxattrs = urlDecode(strxattrs);
-
-  // get from "{" to "}"
-  string restxattrs;
-  {
-    size_t startpos = string::npos;
-    size_t endpos   = string::npos;
-    if(string::npos != (startpos = jsonxattrs.find_first_of("{"))){
-      endpos = jsonxattrs.find_last_of("}");
-    }
-    if(startpos == string::npos || endpos == string::npos || endpos <= startpos){
-      S3FS_PRN_WARN("xattr header(%s) is not json format.", jsonxattrs.c_str());
-      return 0;
-    }
-    restxattrs = jsonxattrs.substr(startpos + 1, endpos - (startpos + 1));
-  }
-
-  // parse each key:val
-  for(size_t pair_nextpos = restxattrs.find_first_of(","); 0 < restxattrs.length(); restxattrs = (pair_nextpos != string::npos ? restxattrs.substr(pair_nextpos + 1) : string("")), pair_nextpos = restxattrs.find_first_of(",")){
-    string pair = pair_nextpos != string::npos ? restxattrs.substr(0, pair_nextpos) : restxattrs;
-    string    key  = "";
-    PXATTRVAL pval = NULL;
-    if(!parse_xattr_keyval(pair, key, pval)){
-      // something format error, so skip this.
-      continue;
-    }
-    xattrs[key] = pval;
-  }
-  return xattrs.size();
-}
-
-static std::string build_xattrs(const xattrs_t& xattrs)
-{
-  string strxattrs("{");
-
-  bool is_set = false;
-  for(xattrs_t::const_iterator iter = xattrs.begin(); iter != xattrs.end(); ++iter){
-    if(is_set){
-      strxattrs += ',';
-    }else{
-      is_set = true;
-    }
-    strxattrs += '\"';
-    strxattrs += iter->first;
-    strxattrs += "\":\"";
-
-    if(iter->second){
-      char* base64val = s3fs_base64((iter->second)->pvalue, (iter->second)->length);
-      if(base64val){
-        strxattrs += base64val;
-        free(base64val);
-      }
-    }
-    strxattrs += '\"';
-  }
-  strxattrs += '}';
-
-  strxattrs = urlEncode(strxattrs);
-
-  return strxattrs;
-}
 
 
    
@@ -1313,18 +616,21 @@ static void* s3fs_init(struct fuse_conn_info* conn)
      conn->want |= FUSE_CAP_ATOMIC_O_TRUNC;
   }
   #endif
-  S3Stat::run();
+  
   if((unsigned int)conn->capable & FUSE_CAP_BIG_WRITES){
      conn->want |= FUSE_CAP_BIG_WRITES;
   }
 
+  S3Stat::instance().setBucket(bucket);
+  S3Stat::instance().start();
+  AutoFileLock::init();
   int rc = 0;
-  rc = S3RSync::start();
+  rc = S3RSync::Instance().start();
   if (rc) {
     S3FS_PRN_CRIT("S3RSync::init failed(%d).", rc);
-    return rc;  
+    return NULL;  
   }
-  S3Stat::instance().bucket(bucket);
+  
 
   return NULL;
 }
@@ -1338,8 +644,8 @@ static void s3fs_destroy(void*)
     S3FS_PRN_WARN("Could not remove cache directory.");
   }
 
-  S3RSync::exit();
-  S3Stat::instance().exit();
+  S3RSync::Instance().stop();
+  S3Stat::instance().stop();
 }
 
 
@@ -2132,8 +1438,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
       if ((ret = set_bucket(arg))){
         return ret;
       }
-
-      S3RSync::Instance()->setBucket(bucket.c_str());
+      
       return 0;
     }
     else if (!strcmp(arg, "s3fs")) {
@@ -2237,7 +1542,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
     }
     if(0 == STR2NCMP(arg, "cachedb_dir=")){
       string cacheDir = rebuild_path(strchr(arg, '=') + sizeof(char));
-      S3DB::Instance()->setDir(cacheDir.c_str());
+      S3DB::Instance().setDir(cacheDir.c_str());
       return 0;
     }
     if(0 == STR2NCMP(arg, "cachepage_dir=")){

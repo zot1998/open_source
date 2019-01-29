@@ -2042,10 +2042,11 @@ int S3fsCurl::RequestPerform(void)
   // 1 attempt + retries...
   for(int retrycnt = S3fsCurl::retries; 0 < retrycnt; retrycnt--){
     // Requests
+    CURLcode curlCode;
     {
         
-        FUSE_STATS();
-        CURLcode curlCode = curl_easy_perform(hCurl);
+        HTTP_STATS();
+        curlCode = curl_easy_perform(hCurl);
     }
 
     // Check result
