@@ -24,7 +24,8 @@ if USE_GNUTLS_NETTLE
   AM_CPPFLAGS += -DUSE_GNUTLS_NETTLE
 endif
 
-s3fs_SOURCES = s3fs.cpp curl.cpp cache.cpp string_util.cpp s3fs_util.cpp fdcache.cpp common_auth.cpp addhead.cpp s3fs_io.cpp s3fs_gc.cpp s3fs_db.cpp s3fs_stat.cpp
+s3fs_SOURCES = s3fs.cpp curl.cpp cache.cpp string_util.cpp s3fs_util.cpp fdcache.cpp common_auth.cpp addhead.cpp \
+               s3fs_ent.cpp s3fs_oper.cpp s3fs_gc.cpp s3fs_db.cpp s3fs_stats.cpp s3fs_rsync.cpp
 if USE_SSL_OPENSSL
   s3fs_SOURCES += openssl_auth.cpp
 endif

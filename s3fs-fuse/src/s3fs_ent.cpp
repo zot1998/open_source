@@ -32,6 +32,8 @@
 #include "fdcache.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
+#include "s3fs_var.h"
+#include "s3fs_ent.h"
 
 
 
@@ -255,10 +257,10 @@ int S3Ent::build(Ent &ent)
     if (ent.isDir()) {
         meta["Content-Type"]     = string("application/x-directory");
     }
-    meta["x-amz-meta-uid"]   = str(ent.stat().st_uid);
-    meta["x-amz-meta-gid"]   = str(ent.stat().st_gid);
-    meta["x-amz-meta-mode"]  = str(ent.stat().st_mode);
-    meta["x-amz-meta-mtime"] = str(ent.stat().st_mtime);
+    meta["x-amz-meta-uid"]   = str(ent.getStat().st_uid);
+    meta["x-amz-meta-gid"]   = str(ent.getStat().st_gid);
+    meta["x-amz-meta-mode"]  = str(ent.getStat().st_mode);
+    meta["x-amz-meta-mtime"] = str(ent.getStat().st_mtime);
 
     int rc = 0;
     if (ent.isDir()) {
@@ -270,7 +272,7 @@ int S3Ent::build(Ent &ent)
             S3FS_PRN_WARN("failed to open file(%s)", m_strPath.c_str());
             rc = -EIO;
         } else {        
-            if(ent.stat().st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
+            if(ent.getStat().st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
                 // Additional time is needed for large files
                 time_t backup = 0;
                 if(120 > S3fsCurl::GetReadwriteTimeout()){

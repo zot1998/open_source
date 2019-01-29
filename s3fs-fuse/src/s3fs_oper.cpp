@@ -23,6 +23,7 @@
 #include <string>
 #include <list>
 #include "autofilelock.h"
+#include "s3fs_var.h"
 #include "s3fs_oper.h"
 
 S3fsOper::S3fsOper(const char *dstFile, const char *srcFile):m_dstEnt(dstFile), m_srcEnt(srcFile)
@@ -465,7 +466,7 @@ int S3fsOper::removexattr(const char* name)
 int S3fsOper::checkaccess(VfsEnt &ent, int mask)
 {
     int result;
-    struct stat & st = ent.stat();
+    struct stat & st = ent.getStat();
     struct fuse_context* pcxt;
 
     if(NULL == (pcxt = fuse_get_context())){
@@ -558,7 +559,7 @@ int S3fsOper::checkowner(VfsEnt &ent)
         return 0;
     }
     
-    if(pcxt->uid == ent.stat().st_uid){
+    if(pcxt->uid == ent.getStat().st_uid){
         return 0;
     }
     

@@ -113,7 +113,7 @@ const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX] = {"", "  ", "    ", "      "};
 //-------------------------------------------------------------------
 static uid_t mp_uid               = 0;    // owner of mount point(only not specified uid opt)
 static gid_t mp_gid               = 0;    // group of mount point(only not specified gid opt)
-static mode_t mp_mode             = 0;    // mode of mount point
+mode_t mp_mode             = 0;    // mode of mount point
 static mode_t mp_umask            = 0;    // umask for mount point
 static bool is_mp_umask           = false;// default does not set.
 static std::string mountpoint;
@@ -128,8 +128,8 @@ static bool load_iamrole          = false;
 static uid_t s3fs_uid             = 0;
 static gid_t s3fs_gid             = 0;
 static mode_t s3fs_umask          = 0;
-static bool is_s3fs_uid           = false;// default does not set.
-static bool is_s3fs_gid           = false;// default does not set.
+bool is_s3fs_uid           = false;// default does not set.
+bool is_s3fs_gid           = false;// default does not set.
 static bool is_s3fs_umask         = false;// default does not set.
 static bool is_remove_cache       = false;
 static bool is_ecs                = false;
@@ -425,7 +425,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
   VfsEnt stVfsEnt(path);
   result = stVfsEnt.init();
   if (stVfsEnt.isExists()) {
-      *pstbuf = stVfsEnt.stat();
+      *pstbuf = stVfsEnt.getStat();
   } else {
       result = -ENOENT;
   }

@@ -966,7 +966,7 @@ bool is_need_check_obj_detail(headers_t& meta)
 
 std::string rebuild_path(const char *pPath, bool bSeparator) {
     std::string path = pPath;
-    while (path.size() > 1 && path.back() == '/') {
+    while (path.size() > 1 && *(path.end() -1) == '/') {
         path.erase(path.end() -1);
     }
 
