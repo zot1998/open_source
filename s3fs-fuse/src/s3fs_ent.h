@@ -62,10 +62,12 @@ class S3Ent:public Ent
         int init(void);
         int build(Ent &ent);
         int remove(void);
+        bool isEmptyDir(void);
 
     private:
         std::string m_strMatchPath;
-        bool        m_bEmptyDir;        
+        bool        m_bEmptyDir;
+        bool        m_bEmptyDirValid;     
 
 };
 

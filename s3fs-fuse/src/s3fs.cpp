@@ -111,8 +111,8 @@ const char*    s3fs_log_nest[S3FS_LOG_NEST_MAX] = {"", "  ", "    ", "      "};
 //-------------------------------------------------------------------
 // Static variables
 //-------------------------------------------------------------------
-static uid_t mp_uid               = 0;    // owner of mount point(only not specified uid opt)
-static gid_t mp_gid               = 0;    // group of mount point(only not specified gid opt)
+uid_t mp_uid               = 0;    // owner of mount point(only not specified uid opt)
+gid_t mp_gid               = 0;    // group of mount point(only not specified gid opt)
 mode_t mp_mode             = 0;    // mode of mount point
 static mode_t mp_umask            = 0;    // umask for mount point
 static bool is_mp_umask           = false;// default does not set.
@@ -125,9 +125,9 @@ static bool norenameapi           = false;
 static bool nonempty              = false;
 static bool allow_other           = false;
 static bool load_iamrole          = false;
-static uid_t s3fs_uid             = 0;
-static gid_t s3fs_gid             = 0;
-static mode_t s3fs_umask          = 0;
+uid_t s3fs_uid             = 0;
+gid_t s3fs_gid             = 0;
+mode_t s3fs_umask          = 0;
 bool is_s3fs_uid           = false;// default does not set.
 bool is_s3fs_gid           = false;// default does not set.
 static bool is_s3fs_umask         = false;// default does not set.

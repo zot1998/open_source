@@ -100,15 +100,15 @@ int VfsEnt::build(void)
         result = mkdir(m_strCachePath.c_str(), m_stAttr.st_mode);
         m_errno = errno;
         if (0 != result) {
-            S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", m_strPath.c_str(), m_strPath.st_mode, -errno);
+            S3FS_PRN_ERR("Make local directory(%s, mode:0x%x) errno %d ", m_strPath.c_str(), m_stAttr.st_mode, -errno);
             return result;
         }
 
         //set stat
         // not opened file yet.
         struct utimbuf n_mtime;
-        n_mtime.modtime = time;
-        n_mtime.actime  = time;
+        n_mtime.modtime = time(NULL);
+        n_mtime.actime  = time(NULL);
         if(-1 == utime(m_strCachePath.c_str(), &n_mtime)){
             S3FS_PRN_ERR("set file (%s) utime failed. errno(%d)", m_strPath.c_str(), -errno);
             return -errno;
@@ -118,7 +118,7 @@ int VfsEnt::build(void)
         FdEntity *ent = NULL;
         if(NULL == (ent = FdManager::get()->Open(m_strPath.c_str(), 
                                                   NULL, 
-                                                  static_cast<ssize_t>(stbuf->st_size), 
+                                                  static_cast<ssize_t>(m_stAttr.st_size), 
                                                   m_stAttr.st_mtime, 
                                                   false, 
                                                   true))){
@@ -143,9 +143,9 @@ int VfsEnt::remove(void)
     if (isDir()) {
         //s3fs_rmdir
         rc = rmdir(m_strCachePath.c_str());
-        if (0 != result) {
+        if (0 != rc) {
             S3FS_PRN_ERR("remove local directory(%s) error: %d", m_strPath.c_str(), -errno);
-            return result;
+            return rc;
         }
     } else {
         //s3fs_unlink
@@ -165,10 +165,12 @@ S3Ent::S3Ent(const char *path):Ent(path),m_strMatchPath(m_strPath)
                                   
 {
     m_bEmptyDir = false;
+    m_bEmptyDirValid = false;
 }
 S3Ent::S3Ent(const std::string &path):Ent(path),m_strMatchPath(m_strPath)                             
 {
     m_bEmptyDir = false;
+    m_bEmptyDirValid = false;
 }
 S3Ent::~S3Ent()
 {
@@ -220,14 +222,8 @@ int S3Ent::init(void)
         convert_header_to_stat(m_strMatchPath.c_str(), meta, &m_stAttr, forcedir);        
         if (forcedir) {
             m_bEmptyDir = false;
-        } else {
-            m_bEmptyDir = true;
-            if (S_ISDIR(m_stAttr.st_mode)) {
-                if (-ENOTEMPTY == directory_empty(m_strMatchPath.c_str())){
-                    m_bEmptyDir = false;
-                }
-            }
-        }
+            m_bEmptyDirValid = true;
+        } 
         
         m_bExists = true;
         
@@ -255,7 +251,7 @@ int S3Ent::build(Ent &ent)
 
     headers_t meta;
     if (ent.isDir()) {
-        meta["Content-Type"]     = string("application/x-directory");
+        meta["Content-Type"]     = std::string("application/x-directory");
     }
     meta["x-amz-meta-uid"]   = str(ent.getStat().st_uid);
     meta["x-amz-meta-gid"]   = str(ent.getStat().st_gid);
@@ -272,7 +268,7 @@ int S3Ent::build(Ent &ent)
             S3FS_PRN_WARN("failed to open file(%s)", m_strPath.c_str());
             rc = -EIO;
         } else {        
-            if(ent.getStat().st_size >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
+            if(static_cast<size_t>(ent.getStat().st_size) >= static_cast<size_t>(2 * S3fsCurl::GetMultipartSize()) && !nomultipart){ // default 20MB
                 // Additional time is needed for large files
                 time_t backup = 0;
                 if(120 > S3fsCurl::GetReadwriteTimeout()){
@@ -298,7 +294,7 @@ int S3Ent::remove(void)
 {
     int rc = 0;
     if (isDir()) {
-        if (!m_bEmptyDir) {
+        if (!isEmptyDir()) {
             return -ENOTEMPTY;
         }
 
@@ -312,6 +308,25 @@ int S3Ent::remove(void)
     return 0;
 }
 
+bool S3Ent::isEmptyDir(void)
+{
+    if (m_bEmptyDirValid) {
+        return m_bEmptyDir;
+    } 
+
+    if (!isDir()){
+        return true;
+    }
+
+    if (-ENOTEMPTY == directory_empty(m_strMatchPath.c_str())){
+        m_bEmptyDir = false;
+    } else {
+        m_bEmptyDir = true;
+    }
+    
+    m_bEmptyDirValid = true;
+    return m_bEmptyDir;
+}
 
 
 
