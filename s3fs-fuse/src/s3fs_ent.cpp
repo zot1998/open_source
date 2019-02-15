@@ -39,14 +39,14 @@
 
 
 Ent::Ent(const char *path):m_strPath(rebuild_path(path, false)), 
-                                 m_strPathDir(m_strPath + "/")
+                            m_strPathDir(m_strPath + "/")
                                   
 {
     m_bExists = false;
     memset(&m_stAttr, 0, sizeof(m_stAttr));
 }
 Ent::Ent(const std::string &path):m_strPath(rebuild_path(path.c_str(), false)), 
-                                        m_strPathDir(m_strPath + "/")
+                                   m_strPathDir(m_strPath + "/")
 {
     m_bExists = false;
     memset(&m_stAttr, 0, sizeof(m_stAttr));
@@ -62,10 +62,12 @@ Ent::~Ent()
 
 VfsEnt::VfsEnt(const char *path):Ent(path)
 {
-    m_strCachePath.clear();    
+    m_errno = 0;
+    m_strCachePath.clear();   
 }
 VfsEnt::VfsEnt(const std::string &path):Ent(path)
 {
+    m_errno = 0;
     m_strCachePath.clear();
 }
 VfsEnt::~VfsEnt()
@@ -79,15 +81,17 @@ int VfsEnt::init(void)
     if (0 == m_strPath.size()) {
         return 0;
     }
-    
+
+    FdManager::MakeCachePath(m_strPath.c_str(), m_strCachePath, false);
     rc = stat(m_strCachePath.c_str(), &m_stAttr);
-    m_errno = errno;
-    
     if (0 == rc) {
         m_bExists = true;
-    } else if (ENOENT != errno) {
-        S3FS_PRN_ERR("%s local stat failed(rc:%d,error:%d)", rc, -errno); 
-        return -errno;
+    } else {
+        m_errno = errno;
+        if (ENOENT != errno) {
+            S3FS_PRN_ERR("%s local stat failed(rc:%d,error:%d)", rc, -errno); 
+            return -errno;
+        } 
     }
     
     return 0;
@@ -144,8 +148,9 @@ int VfsEnt::remove(void)
         //s3fs_rmdir
         rc = rmdir(m_strCachePath.c_str());
         if (0 != rc) {
+            
             S3FS_PRN_ERR("remove local directory(%s) error: %d", m_strPath.c_str(), -errno);
-            return rc;
+            return -errno;
         }
     } else {
         //s3fs_unlink
@@ -305,7 +310,7 @@ int S3Ent::remove(void)
         rc = s3fscurl.DeleteRequest(m_strMatchPath.c_str());
     }
     
-    return 0;
+    return rc;
 }
 
 bool S3Ent::isEmptyDir(void)

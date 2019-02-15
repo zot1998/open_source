@@ -13,7 +13,7 @@ extern mode_t s3fs_umask;
 
 extern bool is_s3fs_uid;
 extern bool is_s3fs_gid;
-
+extern bool is_s3fs_umask;
 
 
 

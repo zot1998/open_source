@@ -22,52 +22,43 @@
 #include <map>
 #include <string>
 #include <list>
+
+#include "common.h"
+#include "s3fs.h"
+#include "s3fs_util.h"
 #include "autofilelock.h"
 #include "s3fs_var.h"
+#include "s3fs_db.h"
 #include "s3fs_oper.h"
 
-S3fsOper::S3fsOper(const char *dstFile, const char *srcFile):m_dstEnt(dstFile), m_srcEnt(srcFile)
-{
-    m_dstEnt.init();
-    m_srcEnt.init();
-}
-
-S3fsOper::~S3fsOper()
-{
-    
-}
 
 
 //s3fs_getattr
 int S3fsOper::getattr(struct stat* stbuf)
 {
-    int result = 0;
-
-    #if 0
-
     // check parent directory attribute.
-    if(0 != (result = check_parent_object_access(m_dstEnt.path(), X_OK))){
-        return result;
+    if(0 != (m_nResult= check_parent_object_access(m_dstEnt, X_OK))){
+        return m_nResult;
     }
     
-    if(0 != (result = checkaccess(m_dstEnt, F_OK))){
-        return result;
+    if(0 != (m_nResult = check_object_access(m_dstEnt, F_OK))){
+        return m_nResult;
     }
 
     if(stbuf){
+        memcpy(stbuf, &m_dstEnt.getStat(), sizeof(struct stat));
         stbuf->st_blksize = 4096;
         stbuf->st_blocks  = get_blocks(stbuf->st_size);
     }
     
-    S3FS_PRN_DBG("[path=%s] uid=%u, gid=%u, mode=%04o", m_dstEnt.path(), (unsigned int)(stbuf->st_uid), (unsigned int)(stbuf->st_gid), stbuf->st_mode);
+    S3FS_PRN_INFO("[path=%s] uid=%u, gid=%u, mode=%04o", 
+        m_dstEnt.path(), (unsigned int)(m_dstEnt.getStat().st_uid), (unsigned int)(m_dstEnt.getStat().st_gid), m_dstEnt.getStat().st_mode);
     S3FS_MALLOCTRIM(0);
 
-    #endif
-
-    return result;
+    return m_nResult;
 }
 
-int S3fsOper::readlink(const char* path, char* buf, size_t size)
+int S3fsOper::readlink(char* buf, size_t size)
 {
     #if 0
     if(!path || !buf || 0 >= size){
@@ -106,40 +97,37 @@ int S3fsOper::readlink(const char* path, char* buf, size_t size)
     S3FS_MALLOCTRIM(0);
     #endif
 
-    return 0;
+    return -EPERM;;
 }
 
-int S3fsOper::mknod(const char *path, mode_t mode, dev_t rdev)
+int S3fsOper::mknod(mode_t mode, dev_t rdev)
 {
-    S3FS_PRN_INFO("Don't support mknod (path:%s,mode:0x%x)", path, mode);
-    return -EPERM;
+    S3FS_PRN_INFO("Don't support mknod (path:%s,mode:0x%x)", path(), mode);
+    return m_nResult;
 }
 
 int S3fsOper::mkdir(mode_t mode)
 {
-    int result = 0;
     struct fuse_context* pcxt = NULL;
 
-    #if 0
-
-    S3FS_PRN_INFO("[path=%s][mode=%04o]", path, mode);
+    S3FS_PRN_INFO("[path=%s][mode=%04o]", path(), mode);
 
     if(NULL == (pcxt = fuse_get_context())){
         return -EIO;
     }
 
     // check parent directory attribute.
-    if(0 != (result = check_parent_object_access(path, W_OK | X_OK))){
-        return result;
+    if(0 != (m_nResult = check_parent_object_access(m_dstEnt, W_OK | X_OK))){
+        return m_nResult;
     }
-    if(-ENOENT != (result = checkaccess(m_dstEnt, F_OK))){
-        if(0 == result){
-            result = -EEXIST;
+    if(-ENOENT != (m_nResult = check_object_access(m_dstEnt, F_OK))){
+        if(0 == m_nResult){
+            m_nResult = -EEXIST;
         }
-        return result;
+        return m_nResult;
     }
 
-    struct stat &st = m_dstEnt.stat();
+    struct stat &st = m_dstEnt.getStat();
 
     st.st_uid   = pcxt->uid;
     st.st_gid   = pcxt->gid;
@@ -147,25 +135,20 @@ int S3fsOper::mkdir(mode_t mode)
     st.st_mtime = time(NULL);
     st.st_nlink = 2;
 
-    result = m_dstEnt.build();
-    if (0 == result) {
+    m_nResult = m_dstEnt.build();
+    if (0 == m_nResult) {
+
         S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_ADD, st.st_mode);
         S3DB::Instance().insertDB(record);
     }
 
-    #endif
-
-    return result;
+    return m_nResult;
 }
 
 int S3fsOper::rmdir(void)
 {    
-    int result;
-
-    #if 0
-    
-    if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
-        return result;
+    if(0 != (m_nResult = check_parent_object_access(m_dstEnt, W_OK | X_OK))){
+        return m_nResult;
     }
 
     if (!m_dstEnt.isExists()) {
@@ -173,14 +156,13 @@ int S3fsOper::rmdir(void)
     }
 
     
-    result = m_dstEnt.remove();
-    if (0 == result) {
-        S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.stat().st_mode);
+    m_nResult = m_dstEnt.remove();
+    if (0 == m_nResult) {
+        S3DB_INFO_S record(m_dstEnt.path(), S3DB_OP_DEL, m_dstEnt.getStat().st_mode);
         S3DB::Instance().insertDB(record);
     }
-    #endif
 
-    return result;
+    return m_nResult;
 }
 
 
@@ -188,7 +170,6 @@ int S3fsOper::rmdir(void)
 int S3fsOper::unlink(void)
 {
     #if 0
-    int result;
 
     if(0 != (result = check_parent_object_access(m_dstEnt.path(), W_OK | X_OK))){
         return result;
@@ -201,13 +182,12 @@ int S3fsOper::unlink(void)
     }
     #endif
 
-    return result;
+    return m_nResult;
 }
 
 int S3fsOper::symlink(void)
 {
     #if 0
-    int result;
     struct fuse_context* pcxt;
     
     if(NULL == (pcxt = fuse_get_context())){
@@ -253,14 +233,13 @@ int S3fsOper::symlink(void)
     #endif
     
 
-    return result;
+    return m_nResult;
 }
 
 
 int S3fsOper::rename(void)
 {
     #if 0
-    int result;
     
     if(0 != (result = check_parent_object_access(to, W_OK | X_OK))){
         // not permit writing "to" object parent dir.
@@ -271,8 +250,8 @@ int S3fsOper::rename(void)
         return result;
     }
 
-    if (0 != m_srcEnt.errno()){
-        return m_srcEnt.errno();
+    if (0 != m_srcEnt.getErrno()){
+        return m_srcEnt.getErrno();
     }
 
     // files larger than 5GB must be modified via the multipart interface
@@ -290,7 +269,7 @@ int S3fsOper::rename(void)
     S3FS_MALLOCTRIM(0);
     #endif
 
-    return result;
+    return m_nResult;
 }
 
 int S3fsOper::link(void)
@@ -302,7 +281,6 @@ int S3fsOper::link(void)
 int S3fsOper::chmod(mode_t mode, bool iscopy)
 {
     #if 0
-    int result;
     string strpath;
     string newpath;
     string nowcache;
@@ -322,8 +300,8 @@ int S3fsOper::chmod(mode_t mode, bool iscopy)
         return result;
     }
 
-    if (m_srcEnt.errno()) {
-        return -m_srcEnt.errno();
+    if (m_srcEnt.getErrno()) {
+        return -m_srcEnt.getErrno();
     }
     
     if(0 != (result = checkowner(m_dstEnt))){
@@ -380,14 +358,15 @@ int S3fsOper::chmod(mode_t mode, bool iscopy)
     S3FS_MALLOCTRIM(0);
     #endif
 
-    return 0;
+    return m_nResult;
 }
 
-int S3fsOper::chown(uid_t uid, gid_t gid, bool iscopy = true)
+int S3fsOper::chown(uid_t uid, gid_t gid, bool iscopy)
 {
+    
     return -EIO;
 }
-int S3fsOper::utimens(const struct timespec ts[2], bool iscopy = true)
+int S3fsOper::utimens(const struct timespec ts[2], bool iscopy)
 {
     return -EIO;
 }
@@ -429,15 +408,49 @@ int S3fsOper::release(struct fuse_file_info* fi)
 }
 int S3fsOper::opendir(struct fuse_file_info* fi)
 {
-    return -EIO;
+    int mask = (O_RDONLY != (fi->flags & O_ACCMODE) ? W_OK : R_OK) | X_OK;
+
+    if(0 == (m_nResult = check_object_access(m_dstEnt, mask))){
+        m_nResult = check_parent_object_access(m_dstEnt, mask);
+    }
+    S3FS_MALLOCTRIM(0);
+
+    return m_nResult;
 }
+
 int S3fsOper::readdir(void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi)
 {
-    return -EIO;
+    if(0 != (m_nResult = check_object_access(m_dstEnt, X_OK))){
+        return m_nResult;
+    }
+
+    DIR *dir = NULL;
+    struct dirent *ptr = NULL;
+    dir = ::opendir(m_dstEnt.cachePath());
+    if (NULL == dir) {
+        S3FS_PRN_ERR("opendir failed. errno(%d)", m_dstEnt.cachePath(), -errno);
+        return -errno;
+    }
+    else {
+        while((ptr = ::readdir(dir)) != NULL)
+        {
+            //S3FS_PRN_DBG("+++++: %s\n", ptr->d_name);
+            filler(buf, ptr->d_name, 0, 0);
+        }
+        
+        closedir(dir);
+        dir = NULL;
+    }
+
+    S3FS_MALLOCTRIM(0);
+
+    return m_nResult;
 }
+
 int S3fsOper::access(int mask)
 {
-    return -EIO;
+    m_nResult = check_object_access(m_dstEnt, mask);
+    return m_nResult;
 }
 int S3fsOper::setxattr(const char* name, const char* value, size_t size, int flags)
 {
@@ -455,119 +468,6 @@ int S3fsOper::removexattr(const char* name)
 {
     return -EIO;
 }
-
-
-
-
-
-
-
-
-int S3fsOper::checkaccess(VfsEnt &ent, int mask)
-{
-    int result;
-    struct stat & st = ent.getStat();
-    struct fuse_context* pcxt;
-
-    if(NULL == (pcxt = fuse_get_context())){
-        return -EIO;
-    }
-
-    if (0 != ent.errno()) {
-        return -ent.errno();
-    }
-
-    if(0 == pcxt->uid){
-        // root is allowed all accessing.
-        return 0;
-    }
-    if(is_s3fs_uid && s3fs_uid == pcxt->uid){
-        // "uid" user is allowed all accessing.
-        return 0;
-    }
-    if(F_OK == mask){
-        // if there is a file, always return allowed.
-        return 0;
-    }
-
-    // for "uid", "gid" option
-    uid_t  obj_uid = (is_s3fs_uid ? s3fs_uid : st.st_uid);
-    gid_t  obj_gid = (is_s3fs_gid ? s3fs_gid : st.st_gid);
-
-    // compare file mode and uid/gid + mask.
-    mode_t mode;
-    mode_t base_mask = S_IRWXO;
-    if(is_s3fs_umask){
-        // If umask is set, all object attributes set ~umask.
-        mode = ((S_IRWXU | S_IRWXG | S_IRWXO) & ~s3fs_umask);
-    }else{
-        mode = st.st_mode;
-    }
-    if(pcxt->uid == obj_uid){
-        base_mask |= S_IRWXU;
-    }
-    if(pcxt->gid == obj_gid){
-        base_mask |= S_IRWXG;
-    }
-    if(1 == is_uid_include_group(pcxt->uid, obj_gid)){
-        base_mask |= S_IRWXG;
-    }
-    mode &= base_mask;
-
-    if(X_OK == (mask & X_OK)){
-        if(0 == (mode & (S_IXUSR | S_IXGRP | S_IXOTH))){
-            return -EPERM;
-        }
-    }
-    if(W_OK == (mask & W_OK)){
-        if(0 == (mode & (S_IWUSR | S_IWGRP | S_IWOTH))){
-            return -EACCES;
-        }
-    }
-    if(R_OK == (mask & R_OK)){
-        if(0 == (mode & (S_IRUSR | S_IRGRP | S_IROTH))){
-            return -EACCES;
-        }
-    }
-    if(0 == mode){
-        return -EACCES;
-    }
-    return 0;
-}
-
-int S3fsOper::checkowner(VfsEnt &ent)
-{
-    int result;
-    struct stat st;
-    struct stat* pst = (pstbuf ? pstbuf : &st);
-    struct fuse_context* pcxt;
-
-    S3FS_PRN_DBG("[path=%s]", path);
-
-    if(NULL == (pcxt = fuse_get_context())){
-        return -EIO;
-    }
-    
-    // check owner
-    if(0 == pcxt->uid){
-        // root is allowed all accessing.
-        return 0;
-    }
-    
-    if(is_s3fs_uid && s3fs_uid == pcxt->uid){
-        // "uid" user is allowed all accessing.
-        return 0;
-    }
-    
-    if(pcxt->uid == ent.getStat().st_uid){
-        return 0;
-    }
-    
-    return -EPERM;
-}
-
-
-
 
 
 

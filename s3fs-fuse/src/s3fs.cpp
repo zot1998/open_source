@@ -52,7 +52,8 @@
 #include "fdcache.h"
 #include "s3fs_auth.h"
 #include "addhead.h"
-#include "s3fs_rsync.h"
+#include "s3fs_rsync_mng.h"
+#include "s3fs_rsync_util.h"
 
 #include "s3fs_oper.h"
 #include "s3fs_stats.h"
@@ -130,7 +131,7 @@ gid_t s3fs_gid             = 0;
 mode_t s3fs_umask          = 0;
 bool is_s3fs_uid           = false;// default does not set.
 bool is_s3fs_gid           = false;// default does not set.
-static bool is_s3fs_umask         = false;// default does not set.
+bool is_s3fs_umask         = false;// default does not set.
 static bool is_remove_cache       = false;
 static bool is_ecs                = false;
 static bool is_ibm_iam_auth       = false;
@@ -175,164 +176,135 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
 
 // fuse interface functions
 static int s3fs_getattr(const char* path, struct stat* stbuf) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.getattr(stbuf);
 }
 static int s3fs_readlink(const char* path, char* buf, size_t size) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.readlink(buf, size);
 }
 static int s3fs_mknod(const char* path, mode_t mode, dev_t rdev) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.mknod(mode, rdev);
 }
 static int s3fs_mkdir(const char* path, mode_t mode) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.mkdir(mode);
 }
 static int s3fs_unlink(const char* path) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.unlink();
 }
 static int s3fs_rmdir(const char* path) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.rmdir();
 }    
 static int s3fs_symlink(const char* from, const char* to) {
-    S3FS_STATS();
-    S3fsOper oper(to, from);
+    S3fsOper oper(OPNAME, to, from);
     return oper.symlink();
 }
 static int s3fs_rename(const char* from, const char* to) {
-    S3FS_STATS();
-    S3fsOper oper(to, from);
+    S3fsOper oper(OPNAME, to, from);
     return oper.rename();
 }
 static int s3fs_link(const char* from, const char* to) {
-    S3FS_STATS();
-    S3fsOper oper(to, from);
+    S3fsOper oper(OPNAME, to, from);
     return oper.link();
 }
 static int s3fs_chmod(const char* path, mode_t mode) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.chmod(mode);
 }
 static int s3fs_chmod_nocopy(const char* path, mode_t mode) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.chmod(mode, false);
 }
 static int s3fs_chown(const char* path, uid_t uid, gid_t gid) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.chown(uid, gid);
 }
 static int s3fs_chown_nocopy(const char* path, uid_t uid, gid_t gid) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.chown(uid, gid, false);
 }
 static int s3fs_utimens(const char* path, const struct timespec ts[2]) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.utimens(ts);
 }
 static int s3fs_utimens_nocopy(const char* path, const struct timespec ts[2]) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.utimens(ts, false);
 }
 static int s3fs_truncate(const char* path, off_t size) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.truncate(size);
 }
 static int s3fs_create(const char* path, mode_t mode, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.create(mode, fi);
 }
 static int s3fs_open(const char* path, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.open(fi);
 }
 static int s3fs_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.read(buf, size, offset, fi);
 }
 static int s3fs_write(const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.write(buf, size, offset, fi);
 }
 static int s3fs_statfs(const char* path, struct statvfs* stbuf) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.statfs(stbuf);
 }
 static int s3fs_flush(const char* path, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.flush(fi);
 }
 static int s3fs_fsync(const char* path, int datasync, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.fsync(datasync, fi);
 }
 static int s3fs_release(const char* path, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.release(fi);
 }
 static int s3fs_opendir(const char* path, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    return S3fsOper(path).opendir(fi);
+    S3fsOper oper(OPNAME, path);
+    return oper.opendir(fi);
 }
 static int s3fs_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.readdir(buf, filler, offset, fi);
 }
 static int s3fs_access(const char* path, int mask) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.access(mask);
 }
 
 static int s3fs_setxattr(const char* path, const char* name, const char* value, size_t size, int flags) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.setxattr(name, value, size, flags);
 }
 static int s3fs_getxattr(const char* path, const char* name, char* value, size_t size) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.getxattr(name, value, size);
 }
 
 
 static int s3fs_listxattr(const char* path, char* list, size_t size) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.listxattr(list, size);
 }
 
 
 static int s3fs_removexattr(const char* path, const char* name) {
-    S3FS_STATS();
-    S3fsOper oper(path);
+    S3fsOper oper(OPNAME, path);
     return oper.removexattr(name);
 }
+
 
 static void* s3fs_init(struct fuse_conn_info* conn);
 static void s3fs_destroy(void*);
@@ -624,14 +596,15 @@ static void* s3fs_init(struct fuse_conn_info* conn)
   S3Stat::instance().setBucket(bucket);
   S3Stat::instance().start();
   AutoFileLock::init();
+
   int rc = 0;
-  rc = S3RSync::Instance().start();
+  rc = S3RSyncMng::Instance().start();
   if (rc) {
-    S3FS_PRN_CRIT("S3RSync::init failed(%d).", rc);
+    S3FS_PRN_CRIT("S3RSyncMng::start failed(%d).", rc);
     return NULL;  
   }
   
-
+  S3FS_PRN_INFO("s3fs_init...success");
   return NULL;
 }
 
@@ -644,7 +617,7 @@ static void s3fs_destroy(void*)
     S3FS_PRN_WARN("Could not remove cache directory.");
   }
 
-  S3RSync::Instance().stop();
+  S3RSyncMng::Instance().stop();
   S3Stat::instance().stop();
 }
 

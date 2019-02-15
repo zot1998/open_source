@@ -1,20 +1,11 @@
-#ifndef __MONITOR_H
-#define __MONITOR_H
+#ifndef __S3FS_STATS_H
+#define __S3FS_STATS_H
 #include <stdio.h>
 #include <sys/time.h>
 #include <pthread.h>
 #include <string>
 #include <list>
 #include <map>
-#include <iostream> 
-#include <fstream> 
-
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/rapidjson.h"
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/memorystream.h"
 
 #define UPDATE_MAX(o, v) if ((o) < (v)) { o = (v);}
 #define UPDATE_MIN(o, v) if (((0 == (o)) || ((o) > (v))) && (0 != (v))) { o = (v);}
@@ -85,7 +76,7 @@ class S3Stat{
         
         void setBucket(std::string & bucket) { m_strBucketName = bucket;}
         S3OperStat * getOper(const char *name);
-        std::string get(void);
+        std::string serialize(void);
         void flush(void);
         
 
@@ -113,16 +104,24 @@ class S3Stat{
 class AutoS3Stat
 {
     public:
-        AutoS3Stat(const char *name) { m_pOper = S3Stat::instance().getOper(name); m_id = m_pOper->enter();}
-        ~AutoS3Stat() { if (NULL != m_pOper) { m_pOper->exit(m_id);}}
+        AutoS3Stat(const char *name):m_pName(name) { 
+            m_pOper = S3Stat::instance().getOper(name); 
+            m_id = m_pOper->enter();
+        }
+        ~AutoS3Stat() { 
+            if (NULL != m_pOper) { 
+                m_pOper->exit(m_id);
+            }
+        }
         
     private:
         S3OperStat *m_pOper;
         oper_id     m_id;
+        const char *m_pName;       
 
 };
 
-#define S3FS_STATS() AutoS3Stat  stats(__FUNCTION__)
+#define OPNAME   __FUNCTION__
 #define HTTP_STATS() AutoS3Stat  stats("http_request")
 
 

@@ -20,6 +20,13 @@
 #ifndef S3FS_S3FS_UTIL_H_
 #define S3FS_S3FS_UTIL_H_
 
+#include <unistd.h>
+#include <string>
+#include <map>
+#include <list>
+#include <pthread.h>
+
+
 //-------------------------------------------------------------------
 // Typedef
 //-------------------------------------------------------------------

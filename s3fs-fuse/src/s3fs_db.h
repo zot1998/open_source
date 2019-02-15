@@ -13,41 +13,50 @@
 #define S3DB_OP_ADD 1
 #define S3DB_OP_DEL 2
 
-#define S3DB_STATUS_INIT       1
-#define S3DB_STATUS_PROCESSING 2
-#define S3DB_STATUS_DONE       3
+#define S3DB_DIRTY_DATA   0   //需要同步数据
+#define S3DB_DIRTY_META   1   //只需要同步元数据
+
+#define S3DB_RSYNC_INIT   0
+#define S3DB_RSYNC_DONE   1
 
 
 typedef struct _S3DB_INFO_S {
-    std::string  strFile;
     int64_t      n64Id;
+    
+    std::string  strFile;
     int          nOperator; // S3DB_OP_ADD or S3DB_OP_DEL
-    int          nStatus;
     int          nMode;     //mode_t
-    int64_t      n64Size;     //file size
+    int          nDirty;
+    int          nStatus;   //reserve. not used
+    int64_t      n64Size;   //file size
 
     _S3DB_INFO_S() {
         reset();
     }
-    _S3DB_INFO_S(const char *p, int nOp, mode_t nMode) {
+    _S3DB_INFO_S(const struct _S3DB_INFO_S &obj) {
+        n64Id = obj.n64Id;
+        strFile = obj.strFile;
+        nOperator = obj.nOperator;
+        nMode = obj.nMode;
+        nDirty = obj.nDirty;
+        nStatus = obj.nStatus;
+        n64Size = obj.n64Size;
+    }
+    _S3DB_INFO_S(const char *p, int nOp, mode_t mode, int dirty = S3DB_DIRTY_DATA, int64_t size = 0) {
         reset();
         strFile = p;
         nOperator = nOp;
-        nMode = (int)nMode;
-    }
-    _S3DB_INFO_S(std::string &str, int nOp, mode_t nMode) {
-        reset();
-        strFile = str;
-        nOperator = nOp;
-        nMode = (int)nMode;
-        nStatus = S3DB_STATUS_INIT;
+        nMode = (int)mode;
+        nDirty = dirty;
+        n64Size = size;
     }
     void reset() {
         strFile.clear();
         n64Id = 0;
         nOperator = 0;
-        nStatus = 0;
         nMode = 0;
+        nDirty = S3DB_DIRTY_DATA;
+        nStatus = 0;
         n64Size = 0; 
     }
 }S3DB_INFO_S;
@@ -76,7 +85,6 @@ class S3DB
         int init(void);
 
         int insertDB(S3DB_INFO_S &info);
-        int updateDB(int64_t id, int nStatus);
         int removeDB(int64_t id);
         int queryAheadDB(S3DB_LIST_S &list, int count = 10);
         /*
@@ -87,7 +95,7 @@ class S3DB
                
         */
         int queryLastOP(const char *pFile, int & nOperator);
-        int queryDB(S3DB_LIST_S &list, const char *pFile = NULL, int nOperator = -1, int nStatus = -1, int nCount = -1);        
+        int queryDB(S3DB_LIST_S &list, const char *pFile = NULL, int nOperator = -1, int nCount = -1);        
     private:
         S3DB();
         ~S3DB();

@@ -20,9 +20,12 @@
 
 #ifndef S3FS_COMMON_H_
 #define S3FS_COMMON_H_
-
+#include <stdio.h>
 #include <stdlib.h>
 #include "../config.h"
+#include <strings.h>
+#include <string>
+#include <map>
 
 //
 // Extended attribute
@@ -34,7 +37,7 @@
 #elif HAVE_SYS_XATTR_H
 #include <sys/xattr.h>
 #endif
-
+#include <syslog.h>
 //
 // Macro
 //
@@ -75,13 +78,39 @@ enum s3fs_log_level{
 #define S3FS_LOG_NEST_MAX    4
 #define S3FS_LOG_NEST(nest)  (nest < S3FS_LOG_NEST_MAX ? s3fs_log_nest[nest] : s3fs_log_nest[S3FS_LOG_NEST_MAX - 1])
 
-#define S3FS_LOW_LOGPRN(level, fmt, ...) 
+#define S3FS_LOW_LOGPRN(level, fmt, ...) \
+       if(S3FS_LOG_CRIT == level || (S3FS_LOG_CRIT != debug_level && level == (debug_level & level))){ \
+         if(foreground){ \
+           /*fprintf(stdout, "%s%s:%s(%d): " fmt "%s\n", S3FS_LOG_LEVEL_STRING(level), __FILE__, __func__, __LINE__, __VA_ARGS__);*/ \
+         }else{ \
+           syslog(S3FS_LOG_LEVEL_TO_SYSLOG(level), "%s%s:%s(%d): " fmt "%s", instance_name.c_str(), __FILE__, __func__, __LINE__, __VA_ARGS__); \
+         } \
+       }
 
-#define S3FS_LOW_LOGPRN2(level, nest, fmt, ...) 
+#define S3FS_LOW_LOGPRN2(level, nest, fmt, ...) \
+       if(S3FS_LOG_CRIT == level || (S3FS_LOG_CRIT != debug_level && level == (debug_level & level))){ \
+         if(foreground){ \
+           /*fprintf(stdout, "%s%s%s:%s(%d): " fmt "%s\n", S3FS_LOG_LEVEL_STRING(level), S3FS_LOG_NEST(nest), __FILE__, __func__, __LINE__, __VA_ARGS__); */\
+         }else{ \
+           syslog(S3FS_LOG_LEVEL_TO_SYSLOG(level), "%s%s" fmt "%s", instance_name.c_str(), S3FS_LOG_NEST(nest), __VA_ARGS__); \
+         } \
+       }
 
-#define S3FS_LOW_LOGPRN_EXIT(fmt, ...) 
+#define S3FS_LOW_LOGPRN_EXIT(fmt, ...) \
+       if(foreground){ \
+         /*fprintf(stderr, "s3fs: " fmt "%s\n", __VA_ARGS__); */\
+       }else{ \
+         fprintf(stderr, "s3fs: " fmt "%s\n", __VA_ARGS__); \
+         syslog(S3FS_LOG_LEVEL_TO_SYSLOG(S3FS_LOG_CRIT), "%ss3fs: " fmt "%s", instance_name.c_str(), __VA_ARGS__); \
+       }
+
 // Special macro for init message
-#define S3FS_PRN_INIT_INFO(fmt, ...) 
+#define S3FS_PRN_INIT_INFO(fmt, ...) \
+       if(foreground){ \
+         /*fprintf(stdout, "%s%s%s:%s(%d): " fmt "%s\n", S3FS_LOG_LEVEL_STRING(S3FS_LOG_INFO), S3FS_LOG_NEST(0), __FILE__, __func__, __LINE__, __VA_ARGS__, ""); */\
+       }else{ \
+         syslog(S3FS_LOG_LEVEL_TO_SYSLOG(S3FS_LOG_INFO), "%s%s" fmt "%s", instance_name.c_str(), S3FS_LOG_NEST(0), __VA_ARGS__, ""); \
+       }
 
 // [NOTE]
 // small trick for VA_ARGS
@@ -90,7 +119,7 @@ enum s3fs_log_level{
 #define S3FS_PRN_CRIT(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_CRIT, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_ERR(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_ERR,  fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_WARN(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_WARN, fmt, ##__VA_ARGS__, "")
-#define S3FS_PRN_DBG(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_DBG,  fmt, ##__VA_ARGS__, "")
+#define S3FS_PRN_DBG(fmt, ...)    S3FS_LOW_LOGPRN(S3FS_LOG_INFO,  fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_INFO(fmt, ...)   S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_INFO0(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")
 #define S3FS_PRN_INFO1(fmt, ...)  S3FS_LOW_LOGPRN(S3FS_LOG_INFO, fmt, ##__VA_ARGS__, "")

@@ -4,10 +4,12 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <string>
+#include <unistd.h>
 #include <list>
 #include <map>
 #include <iostream> 
 #include <fstream> 
+#include "common.h"
 
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/rapidjson.h"
@@ -153,7 +155,7 @@ S3Stat::S3Stat(void){
 }
 S3Stat::~S3Stat() {
     int rc = 0;
-    rc = pthread_lock_destroy(&m_lock);
+    rc = pthread_mutex_destroy(&m_lock);
     if (rc) {
         S3FS_PRN_WARN("Monitor:pthread_rwlock_destroy failed.\n");
     }
@@ -178,7 +180,7 @@ void S3Stat::stop(void) {
         pthread_join(m_ThreadId, NULL);
     }
 }
-static void *S3Stat::run(void *Arg){
+void *S3Stat::run(void *Arg){
     uint64 u64Tick = 0;
     while (m_bRunFlag) {
         u64Tick++;
@@ -204,19 +206,19 @@ S3OperStat * S3Stat::getOper(const char *name)
     return op;
 }
 
-std::string S3Stat::get(void) {
+std::string S3Stat::serialize(void) {
     if (m_strBucketName.size() == 0) {
         return "";
     }
     
-    oper *pOper = NULL;
+    S3OperStat *pOper = NULL;
     OPER_MAP::iterator it;
     std::map<const char *, oper_statinfo_t> mapInfo;
     uint64 u64FuseTotalDelay = 0;
     uint64 u64HttpTotalDelay = 0;
     oper_statinfo_t info = {0};
 
-    pthread_lock_rdlock(&m_lock);
+    pthread_mutex_lock(&m_lock);
     for(it = m_mapOper.begin(); it != m_mapOper.end(); ++it)
     {
         pOper = (*it).second;
@@ -229,7 +231,7 @@ std::string S3Stat::get(void) {
             u64FuseTotalDelay += info.u64HistoryTotalDelay + info.u32CurrentTotalPendDelay;
         }
     }
-    pthread_lock_unlock(&m_lock);
+    pthread_mutex_unlock(&m_lock);
 
     rapidjson::StringBuffer s;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
@@ -312,7 +314,7 @@ void S3Stat::flush(void)
         return;
     }
     
-    of<<get().c_str();
+    of<<serialize().c_str();
     of.close();
 }
 

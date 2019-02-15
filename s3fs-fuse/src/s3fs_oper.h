@@ -3,14 +3,22 @@
 #define __S3FS_OPER_H
 
 #include <sys/stat.h>
+#include <fuse.h>
+
+
+
 #include "autofilelock.h"
 #include "s3fs_ent.h"
+#include "s3fs_stats.h"
+
 
 class S3fsOper
 {
     public:
-        S3fsOper(const char *dstFile, const char *srcFile = NULL); 
+        S3fsOper(const char *name, const char *dstFile, const char *srcFile = NULL); 
         virtual ~S3fsOper();
+
+        const char *path(void) {return m_dstEnt.path();}
         
     public: //io operation api        
         int getattr(struct stat* stbuf);
@@ -42,12 +50,16 @@ class S3fsOper
         int listxattr(char* list, size_t size);
         int removexattr(const char* name);
     private:
-        int checkaccess(VfsEnt &ent, int mask);
+        int check_parent_object_access(VfsEnt &ent, int mask);
+        int check_object_access(VfsEnt &ent, int mask);
         int checkowner(VfsEnt &ent);
         
     private:
-        VfsEnt m_dstEnt;
-        VfsEnt m_srcEnt;
+        int         m_nResult;
+        AutoS3Stat  m_stat;
+        VfsEnt      m_dstEnt;
+        VfsEnt      m_srcEnt;
+        const char *m_pName;
 };
 
 

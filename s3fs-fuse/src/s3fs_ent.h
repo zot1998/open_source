@@ -12,17 +12,18 @@ class Ent
         Ent(const std::string &path);
         virtual ~Ent();
 
-        virtual int   init(void)        { return 0;}
-        virtual bool  isDir(void)       { return S_ISDIR(m_stAttr.st_mode);}
-        virtual bool  fileType(void)  { return m_stAttr.st_mode & S_IFMT;}
-        virtual bool  isExists(void)  { return m_bExists;}
-        virtual bool  isRoot(void)     { return m_strPath == "/";}
-        struct  stat &getStat(void)   { return m_stAttr;}
-        virtual int   build(Ent &ent)   { return 0;}
-        virtual int   build(void)       { return 0;}
-        virtual int   remove(void)     { return 0;}
-        virtual const char *path(void)        { return m_strPath.c_str();}
-        virtual size_t size(void)       { return m_stAttr.st_size;} 
+        virtual int   init(void) { return 0;}
+        virtual bool  isDir(void) { return S_ISDIR(m_stAttr.st_mode);}
+        virtual bool  fileType(void) { return m_stAttr.st_mode & S_IFMT;}
+        virtual bool  isExists(void) { return m_bExists;}
+        virtual bool  isRoot(void) { return m_strPath == "/";}
+        struct  stat &getStat(void) { return m_stAttr;}
+        virtual int   build(Ent &ent) { return 0;}
+        virtual int   build(void) { return 0;}
+        virtual int   remove(void) { return 0;}
+        virtual const char *path(void) { return m_strPath.c_str();}
+        virtual const char *pathDir(void) { return m_strPathDir.c_str();}
+        virtual size_t size(void)  { return m_stAttr.st_size;} 
 
     protected:
         bool        m_bExists;
@@ -45,6 +46,7 @@ class VfsEnt:public Ent
         //int open(int flags, mode_t mode);
         //int close(int fd);
         int getErrno(void) { return m_errno; }
+        const char *cachePath(void) { return m_strCachePath.c_str();}
 
     private:
         std::string m_strCachePath;
@@ -63,6 +65,7 @@ class S3Ent:public Ent
         int build(Ent &ent);
         int remove(void);
         bool isEmptyDir(void);
+        int directory_empty(const char* path){return 0;}
 
     private:
         std::string m_strMatchPath;
